@@ -80,6 +80,7 @@ class SearchPage extends ConsumerWidget {
     AudioPlayerController audioPlayer,
   ) async {
     try {
+      await audioPlayer.setUrl(url);
       await audioPlayer.play();
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

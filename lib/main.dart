@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:audio_service/audio_service.dart';
 
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
-import 'features/search/search_page.dart';  // NEW
+import 'features/playlist/playlist_page.dart';
+import 'providers/music_provider.dart';
+import 'models/track.dart';
+import 'audio_handler.dart';
 
 final audioPlayerProvider = StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
   return AudioPlayerController();
@@ -22,58 +26,428 @@ class MusicPlayerApp extends ConsumerWidget {
       ),
       darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: ThemeMode.system,
-      home: const HomePage(),
+      home: const MainScreen(),
       routes: {
-        '/player': (context) => PlayerPage(),
-        '/search': (context) => const SearchPage(),  // NEW
+        '/player': (context) => const PlayerPage(),
+        '/playlist': (context) => const PlaylistPage(),
       },
     );
   }
 }
 
-class HomePage extends ConsumerWidget {
-  const HomePage({super.key});
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _currentIndex = 0;
+
+  final List<Widget> _pages = [
+    const HomePage(),
+    const PlaylistPage(),
+    const SettingsPage(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Music Player'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.music_note),
-            tooltip: 'Open search',
-            onPressed: () {
-              Navigator.pushNamed(context, '/search');
-            },
-          ),
+      body: _pages[_currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
-      body: const Center(
-        child: Text(
-          'Home Page - Add your playlist grid here',
-          style: TextStyle(fontSize: 18),
-        ),
-      ),
-      bottomNavigationBar: _buildBottomNav(context),
-    );
-  }
-
-  BottomNavigationBar _buildBottomNav(BuildContext context) {
-    return BottomNavigationBar(
-      currentIndex: 0,
-      onTap: (index) {},
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
-        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-      ],
     );
   }
 }
 
-void main() {
+class HomePage extends ConsumerStatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _isSearching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text;
+    ref.read(searchQueryProvider.notifier).state = query;
+    setState(() {
+      _isSearching = query.isNotEmpty;
+    });
+  }
+
+  void _playTrack(Track track) async {
+    final controller = ref.read(audioPlayerProvider.notifier);
+    await controller.setUrl(track.audioUrl);
+    await controller.play();
+    if (mounted) {
+      Navigator.pushNamed(context, '/player');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final searchResults = ref.watch(searchResultsProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Search tracks, artists...',
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _searchController.clear();
+                    },
+                  ),
+                ),
+              )
+            : const Text('Music Player'),
+        actions: [
+          if (!_isSearching)
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () {
+                _searchFocusNode.requestFocus();
+              },
+            ),
+        ],
+      ),
+      body: _isSearching
+          ? _buildSearchResults(searchResults)
+          : _buildDashboard(),
+    );
+  }
+
+  Widget _buildSearchResults(List<Track> results) {
+    if (results.isEmpty) {
+      return const Center(
+        child: Text(
+          'No results found',
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: results.length,
+      itemBuilder: (context, index) {
+        final track = results[index];
+        return ListTile(
+          leading: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Center(
+              child: Icon(Icons.music_note, size: 24),
+            ),
+          ),
+          title: Text(track.title),
+          subtitle: Text(track.artist),
+          trailing: IconButton(
+            icon: const Icon(Icons.play_circle_outline),
+            onPressed: () => _playTrack(track),
+          ),
+          onTap: () => _playTrack(track),
+        );
+      },
+    );
+  }
+
+  Widget _buildDashboard() {
+    final recentlyPlayed = ref.watch(recentlyPlayedProvider);
+    final recommendations = ref.watch(recommendationsProvider);
+    final playlists = ref.watch(playlistsProvider);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSection(
+            title: 'Recently Played',
+            tracks: recentlyPlayed,
+          ),
+          _buildSection(
+            title: 'Recommended',
+            tracks: recommendations,
+          ),
+          _buildPlaylistsSection(playlists),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection({required String title, required List<Track> tracks}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 180,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: tracks.length,
+            itemBuilder: (context, index) {
+              final track = tracks[index];
+              return _buildTrackCard(track);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTrackCard(Track track) {
+    return GestureDetector(
+      onTap: () => _playTrack(track),
+      child: Container(
+        width: 140,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.music_note,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              track.title,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              track.artist,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaylistsSection(List<Playlist> playlists) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Your Playlists',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  // Navigate to playlists tab
+                },
+                child: const Text('See all'),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 120,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: playlists.length,
+            itemBuilder: (context, index) {
+              final playlist = playlists[index];
+              return _buildPlaylistCard(playlist);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlaylistCard(Playlist playlist) {
+    return GestureDetector(
+      onTap: () {
+        if (playlist.tracks.isNotEmpty) {
+          _playTrack(playlist.tracks.first);
+        }
+      },
+      child: Container(
+        width: 120,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 120,
+              height: 80,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Icon(
+                  Icons.queue_music,
+                  size: 32,
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              playlist.name,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              '${playlist.tracks.length} tracks',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+      ),
+      body: ListView(
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Audio',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('About'),
+            subtitle: const Text('Music Player v1.0.0'),
+            onTap: () {
+              showAboutDialog(
+                context: context,
+                applicationName: 'Music Player',
+                applicationVersion: '1.0.0',
+                children: [
+                  const Text('A Flutter music player app.'),
+                  const SizedBox(height: 8),
+                  const Text('Made with AI assistance'),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+late MusicAudioHandler _audioHandler;
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  _audioHandler = await AudioService.init(
+    builder: () => MusicAudioHandler(),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.example.music_player.channel.audio',
+      androidNotificationChannelName: 'Music Player',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+    ),
+  );
 
   runApp(
     ProviderScope(

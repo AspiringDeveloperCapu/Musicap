@@ -33,6 +33,7 @@ dependencies:
 
   # Audio player for Flutter frontend
   just_audio: ^0.9.31
+  audio_service: ^0.18.17
 
 # State management
   riverpod: ^2.6.1

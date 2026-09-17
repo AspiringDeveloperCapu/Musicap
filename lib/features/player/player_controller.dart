@@ -13,8 +13,53 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   }
 
   Future<void> _initialize() async {
-    // Configure player - sequential loop mode
-    // just_audio 0.9.x uses setLoopMode for repeat
+    _player.positionStream.listen((position) {
+      state = state.copyWith(currentPosition: position);
+    });
+
+    _player.durationStream.listen((duration) {
+      state = state.copyWith(totalDuration: duration);
+    });
+
+    _player.playerStateStream.listen((playerState) {
+      state = state.copyWith(
+        isPlaying: playerState.playing,
+        processing: playerState.processingState == ProcessingState.loading ||
+            playerState.processingState == ProcessingState.buffering,
+      );
+    });
+  }
+
+  // Set audio source from URL
+  Future<void> setUrl(String url) async {
+    try {
+      await _player.setUrl(url);
+      _updateState();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Set audio source from asset
+  Future<void> setAsset(String assetPath) async {
+    try {
+      await _player.setAsset(assetPath);
+      _updateState();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Play playlist
+  Future<void> setPlaylist(List<String> urls, {int startIndex = 0}) async {
+    try {
+      final sources = urls.map((url) => AudioSource.uri(Uri.parse(url))).toList();
+      final playlist = ConcatenatingAudioSource(children: sources);
+      await _player.setAudioSource(playlist, initialIndex: startIndex);
+      _updateState();
+    } catch (e) {
+      rethrow;
+    }
   }
 
   // Playback controls
@@ -33,9 +78,29 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _updateState();
   }
 
+  Future<void> playOrPause() async {
+    if (_player.playing) {
+      await _player.pause();
+    } else {
+      await _player.play();
+    }
+    _updateState();
+  }
+
   // Seek to position
   Future<void> seek(Duration position) async {
     await _player.seek(position);
+    _updateState();
+  }
+
+  // Next/Previous (for playlist)
+  Future<void> seekToNext() async {
+    await _player.seekToNext();
+    _updateState();
+  }
+
+  Future<void> seekToPrevious() async {
+    await _player.seekToPrevious();
     _updateState();
   }
 
@@ -51,14 +116,19 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   }
 
   // Loop/Repeat
-  setLoop(bool loop) {
-    if (loop) {
-      _player.setLoopMode(LoopMode.one);
-    } else {
-      _player.setLoopMode(LoopMode.off);
-    }
+  setLoopMode(LoopMode mode) {
+    _player.setLoopMode(mode);
     _updateState();
   }
+
+  // Shuffle
+  setShuffleMode(bool enabled) {
+    _player.setShuffleModeEnabled(enabled);
+    _updateState();
+  }
+
+  // Get current player
+  AudioPlayer get player => _player;
 
   // State updates from player streams
   void _updateState() {
@@ -77,12 +147,22 @@ class AudioPlayerState {
   final bool processing;
   final Duration? currentPosition;
   final Duration? totalDuration;
+  final int currentIndex;
+  final bool hasNext;
+  final bool hasPrevious;
+  final bool isShuffleEnabled;
+  final LoopMode loopMode;
 
   AudioPlayerState({
     this.isPlaying = false,
     this.processing = false,
     this.currentPosition,
     this.totalDuration,
+    this.currentIndex = 0,
+    this.hasNext = false,
+    this.hasPrevious = false,
+    this.isShuffleEnabled = false,
+    this.loopMode = LoopMode.off,
   });
 
   AudioPlayerState copyWith({
@@ -90,12 +170,22 @@ class AudioPlayerState {
     bool? processing,
     Duration? currentPosition,
     Duration? totalDuration,
+    int? currentIndex,
+    bool? hasNext,
+    bool? hasPrevious,
+    bool? isShuffleEnabled,
+    LoopMode? loopMode,
   }) {
     return AudioPlayerState(
       isPlaying: isPlaying ?? this.isPlaying,
       processing: processing ?? this.processing,
       currentPosition: currentPosition ?? this.currentPosition,
       totalDuration: totalDuration ?? this.totalDuration,
+      currentIndex: currentIndex ?? this.currentIndex,
+      hasNext: hasNext ?? this.hasNext,
+      hasPrevious: hasPrevious ?? this.hasPrevious,
+      isShuffleEnabled: isShuffleEnabled ?? this.isShuffleEnabled,
+      loopMode: loopMode ?? this.loopMode,
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
 
@@ -97,13 +98,55 @@ class PlayerPage extends ConsumerWidget {
             // Playback controls - using state from provider
             _PlaybackControls(
               isPlaying: state.isPlaying,
+              hasNext: state.hasNext,
+              hasPrevious: state.hasPrevious,
               onPlayPause: () {
-                if (state.isPlaying) {
-                  ref.read(audioPlayerProvider.notifier).pause();
-                } else {
-                  ref.read(audioPlayerProvider.notifier).play();
-                }
+                ref.read(audioPlayerProvider.notifier).playOrPause();
               },
+              onNext: () {
+                ref.read(audioPlayerProvider.notifier).seekToNext();
+              },
+              onPrevious: () {
+                ref.read(audioPlayerProvider.notifier).seekToPrevious();
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Shuffle & Loop controls
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: Icon(
+                    Icons.shuffle,
+                    color: state.isShuffleEnabled
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                  ),
+                  onPressed: () {
+                    ref.read(audioPlayerProvider.notifier).setShuffleMode(!state.isShuffleEnabled);
+                  },
+                ),
+                const SizedBox(width: 24),
+                IconButton(
+                  icon: Icon(
+                    state.loopMode == LoopMode.one
+                        ? Icons.repeat_one
+                        : Icons.repeat,
+                    color: state.loopMode != LoopMode.off
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                  ),
+                  onPressed: () {
+                    final nextMode = state.loopMode == LoopMode.off
+                        ? LoopMode.all
+                        : state.loopMode == LoopMode.all
+                            ? LoopMode.one
+                            : LoopMode.off;
+                    ref.read(audioPlayerProvider.notifier).setLoopMode(nextMode);
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -166,11 +209,19 @@ class _SeekBar extends StatelessWidget {
 
 class _PlaybackControls extends StatelessWidget {
   final bool isPlaying;
+  final bool hasNext;
+  final bool hasPrevious;
   final VoidCallback onPlayPause;
+  final VoidCallback onNext;
+  final VoidCallback onPrevious;
 
   const _PlaybackControls({
     required this.isPlaying,
+    required this.hasNext,
+    required this.hasPrevious,
     required this.onPlayPause,
+    required this.onNext,
+    required this.onPrevious,
   });
 
   @override
@@ -180,7 +231,7 @@ class _PlaybackControls extends StatelessWidget {
       children: [
         _ControlButton(
           icon: Icons.skip_previous,
-          onPressed: () {},
+          onPressed: hasPrevious ? onPrevious : null,
           label: 'Prev',
         ),
         const SizedBox(width: 24),
@@ -192,7 +243,7 @@ class _PlaybackControls extends StatelessWidget {
         const SizedBox(width: 24),
         _ControlButton(
           icon: Icons.skip_next,
-          onPressed: () {},
+          onPressed: hasNext ? onNext : null,
           label: 'Next',
         ),
       ],
@@ -202,12 +253,12 @@ class _PlaybackControls extends StatelessWidget {
 
 class _ControlButton extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final String label;
 
   const _ControlButton({
     required this.icon,
-    required this.onPressed,
+    this.onPressed,
     required this.label,
   });
 
@@ -218,6 +269,9 @@ class _ControlButton extends StatelessWidget {
       child: IconButton(
         icon: Icon(icon, size: 36),
         onPressed: onPressed,
+        color: onPressed != null
+            ? Theme.of(context).colorScheme.onSurface
+            : Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
       ),
     );
   }
