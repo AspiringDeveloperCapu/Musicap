@@ -158,11 +158,16 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   ),
                   Padding(
                     padding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
-                    child: Row(
-                      children: [
-                        GestureDetector(
-                          onTap: () => Navigator.pushNamed(context, '/player'),
-                          child: Container(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (ModalRoute.of(context)?.settings.name != '/player') {
+                          Navigator.pushNamed(context, '/player');
+                        }
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Row(
+                        children: [
+                          Container(
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
@@ -175,12 +180,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                               color: Theme.of(context).colorScheme.primary,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => Navigator.pushNamed(context, '/player'),
-                            behavior: HitTestBehavior.opaque,
+                          const SizedBox(width: 10),
+                          Expanded(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -203,33 +204,43 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                               ],
                             ),
                           ),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            state.hasPrevious ? Icons.skip_previous : Icons.skip_previous,
-                            size: 24,
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        MouseRegion(
+                          cursor: state.hasPrevious ? SystemMouseCursors.click : SystemMouseCursors.basic,
+                          child: IconButton(
+                            icon: const Icon(Icons.skip_previous, size: 24),
+                            onPressed: state.hasPrevious
+                                ? () => ref.read(audioPlayerProvider.notifier).seekToPrevious()
+                                : null,
                           ),
-                          onPressed: state.hasPrevious
-                              ? () => ref.read(audioPlayerProvider.notifier).seekToPrevious()
-                              : null,
                         ),
-                        IconButton(
-                          icon: Icon(
-                            state.isPlaying ? Icons.pause : Icons.play_arrow,
-                            size: 28,
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: IconButton(
+                            icon: Icon(
+                              state.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                              size: 40,
+                            ),
+                            color: Theme.of(context).colorScheme.primary,
+                            onPressed: () => ref.read(audioPlayerProvider.notifier).playOrPause(),
                           ),
-                          onPressed: () {
-                            ref.read(audioPlayerProvider.notifier).playOrPause();
-                          },
                         ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.skip_next,
-                            size: 24,
+                        MouseRegion(
+                          cursor: state.hasNext ? SystemMouseCursors.click : SystemMouseCursors.basic,
+                          child: IconButton(
+                            icon: const Icon(Icons.skip_next, size: 24),
+                            onPressed: state.hasNext
+                                ? () => ref.read(audioPlayerProvider.notifier).seekToNext()
+                                : null,
                           ),
-                          onPressed: state.hasNext
-                              ? () => ref.read(audioPlayerProvider.notifier).seekToNext()
-                              : null,
                         ),
                       ],
                     ),
@@ -289,9 +300,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     final controller = ref.read(audioPlayerProvider.notifier);
     final index = fromQueue.indexOf(track);
     await controller.playTrack(track, fromQueue: fromQueue, startIndex: index >= 0 ? index : 0);
-    if (mounted) {
-      Navigator.pushNamed(context, '/player');
-    }
   }
 
   @override

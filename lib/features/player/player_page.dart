@@ -15,12 +15,11 @@ class PlayerPage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Now Playing'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+        children: [
+          Center(
+            child: Container(
               width: 220,
               height: 220,
               decoration: BoxDecoration(
@@ -44,9 +43,11 @@ class PlayerPage extends ConsumerWidget {
                       ),
               ),
             ),
-            const SizedBox(height: 32),
+          ),
+          const SizedBox(height: 32),
 
-            Text(
+          Center(
+            child: Text(
               state.currentTitle.isNotEmpty ? state.currentTitle : 'No Track',
               style: TextStyle(
                 fontSize: 22,
@@ -57,8 +58,10 @@ class PlayerPage extends ConsumerWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
-            Text(
+          ),
+          const SizedBox(height: 4),
+          Center(
+            child: Text(
               state.currentArtist.isNotEmpty ? state.currentArtist : 'Unknown Artist',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
@@ -68,96 +71,175 @@ class PlayerPage extends ConsumerWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 32),
+          ),
+          const SizedBox(height: 32),
 
-            _InteractiveSeekBar(
-              position: state.currentPosition ?? Duration.zero,
-              duration: state.totalDuration ?? Duration.zero,
-              onSeek: (position) {
-                ref.read(audioPlayerProvider.notifier).seek(position);
-              },
-            ),
-            const SizedBox(height: 8),
+          _InteractiveSeekBar(
+            position: state.currentPosition ?? Duration.zero,
+            duration: state.totalDuration ?? Duration.zero,
+            onSeek: (position) {
+              ref.read(audioPlayerProvider.notifier).seek(position);
+            },
+          ),
+          const SizedBox(height: 8),
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  _formatDuration(state.currentPosition ?? Duration.zero),
-                  style: const TextStyle(fontSize: 12),
-                ),
-                Text(
-                  _formatDuration(state.totalDuration ?? Duration.zero),
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-
-            _PlaybackControls(
-              isPlaying: state.isPlaying,
-              hasNext: state.hasNext,
-              hasPrevious: state.hasPrevious,
-              onPlayPause: () {
-                ref.read(audioPlayerProvider.notifier).playOrPause();
-              },
-              onNext: () {
-                ref.read(audioPlayerProvider.notifier).seekToNext();
-              },
-              onPrevious: () {
-                ref.read(audioPlayerProvider.notifier).seekToPrevious();
-              },
-            ),
-            const SizedBox(height: 24),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: Icon(
-                    Icons.shuffle,
-                    color: state.isShuffleEnabled
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                  ),
-                  onPressed: () {
-                    ref.read(audioPlayerProvider.notifier).setShuffleMode(!state.isShuffleEnabled);
-                  },
-                ),
-                const SizedBox(width: 24),
-                IconButton(
-                  icon: Icon(
-                    state.loopMode == LoopMode.one
-                        ? Icons.repeat_one
-                        : Icons.repeat,
-                    color: state.loopMode != LoopMode.off
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                  ),
-                  onPressed: () {
-                    final nextMode = state.loopMode == LoopMode.off
-                        ? LoopMode.all
-                        : state.loopMode == LoopMode.all
-                            ? LoopMode.one
-                            : LoopMode.off;
-                    ref.read(audioPlayerProvider.notifier).setLoopMode(nextMode);
-                  },
-                ),
-              ],
-            ),
-
-            if (state.queue.isNotEmpty) ...[
-              const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
               Text(
-                '${state.currentIndex + 1} / ${state.queue.length}',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                  fontSize: 12,
-                ),
+                _formatDuration(state.currentPosition ?? Duration.zero),
+                style: const TextStyle(fontSize: 12),
+              ),
+              Text(
+                _formatDuration(state.totalDuration ?? Duration.zero),
+                style: const TextStyle(fontSize: 12),
               ),
             ],
+          ),
+          const SizedBox(height: 32),
+
+          _PlaybackControls(
+            isPlaying: state.isPlaying,
+            hasNext: state.hasNext,
+            hasPrevious: state.hasPrevious,
+            onPlayPause: () {
+              ref.read(audioPlayerProvider.notifier).playOrPause();
+            },
+            onNext: () {
+              ref.read(audioPlayerProvider.notifier).seekToNext();
+            },
+            onPrevious: () {
+              ref.read(audioPlayerProvider.notifier).seekToPrevious();
+            },
+          ),
+          const SizedBox(height: 24),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.shuffle,
+                  color: state.isShuffleEnabled
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                ),
+                onPressed: () {
+                  ref.read(audioPlayerProvider.notifier).setShuffleMode(!state.isShuffleEnabled);
+                },
+              ),
+              const SizedBox(width: 24),
+              IconButton(
+                icon: Icon(
+                  state.loopMode == LoopMode.one
+                      ? Icons.repeat_one
+                      : Icons.repeat,
+                  color: state.loopMode != LoopMode.off
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                ),
+                onPressed: () {
+                  final nextMode = state.loopMode == LoopMode.off
+                      ? LoopMode.all
+                      : state.loopMode == LoopMode.all
+                          ? LoopMode.one
+                          : LoopMode.off;
+                  ref.read(audioPlayerProvider.notifier).setLoopMode(nextMode);
+                },
+              ),
+            ],
+          ),
+
+          if (state.queue.isNotEmpty) ...[
+            const SizedBox(height: 32),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Up Next',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  Text(
+                    '${state.queue.length} tracks',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...List.generate(state.queue.length, (index) {
+              final track = state.queue[index];
+              final isPlaying = index == state.currentIndex;
+
+              return MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: isPlaying
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: isPlaying && state.isPlaying
+                          ? const Icon(Icons.equalizer, color: Colors.white, size: 20)
+                          : isPlaying
+                              ? Icon(
+                                  Icons.play_arrow,
+                                  color: Colors.white,
+                                  size: 20,
+                                )
+                              : Text(
+                                  '${index + 1}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                    ),
+                  ),
+                  title: Text(
+                    track.title,
+                    style: TextStyle(
+                      fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                      color: isPlaying ? Theme.of(context).colorScheme.primary : null,
+                      fontSize: 14,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  onTap: () {
+                    ref.read(audioPlayerProvider.notifier).playTrack(
+                          track,
+                          fromQueue: state.queue,
+                          startIndex: index,
+                        );
+                  },
+                ),
+              );
+            }),
           ],
-        ),
+        ],
       ),
     );
   }
