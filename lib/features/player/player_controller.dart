@@ -164,12 +164,17 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   /// Reorders the queue by moving a track from [oldIndex] to [newIndex].
   /// Also moves the track in the underlying ConcatenatingAudioSource and
-  /// adjusts the current track index so playback continues correctly.
+  /// adjusts the current track index so playback continues on the same track.
   Future<void> reorderQueue(int oldIndex, int newIndex) async {
     if (_audioSource == null) return;
     if (oldIndex == newIndex) return;
     if (oldIndex < 0 || oldIndex >= state.queue.length) return;
     if (newIndex < 0 || newIndex >= state.queue.length) return;
+
+    // Save the currently playing track's ID so we can re-locate it after the move.
+    final currentTrackId = state.currentIndex < state.queue.length
+        ? state.queue[state.currentIndex].id
+        : null;
 
     await _audioSource!.move(oldIndex, newIndex);
 
@@ -177,15 +182,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     final track = newQueue.removeAt(oldIndex);
     newQueue.insert(newIndex, track);
 
-    // Adjust current index based on where the move happened relative to it.
-    int currentIdx = state.currentIndex;
-    if (currentIdx == oldIndex) {
-      currentIdx = newIndex;
-    } else if (oldIndex < currentIdx && newIndex >= currentIdx) {
-      currentIdx--;
-    } else if (oldIndex > currentIdx && newIndex <= currentIdx) {
-      currentIdx++;
-    }
+    // Find where the currently playing track ended up after the move.
+    int currentIdx = newQueue.indexWhere((t) => t.id == currentTrackId);
+    if (currentIdx == -1) currentIdx = state.currentIndex;
 
     state = state.copyWith(
       queue: newQueue,
