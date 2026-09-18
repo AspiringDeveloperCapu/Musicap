@@ -9,6 +9,43 @@ import 'providers/music_provider.dart';
 import 'models/track.dart';
 import 'audio_handler.dart';
 
+class HoverScale extends StatefulWidget {
+  final Widget child;
+  final double scale;
+  final VoidCallback? onTap;
+
+  const HoverScale({
+    super.key,
+    required this.child,
+    this.scale = 1.05,
+    this.onTap,
+  });
+
+  @override
+  State<HoverScale> createState() => _HoverScaleState();
+}
+
+class _HoverScaleState extends State<HoverScale> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isHovered ? widget.scale : 1.0,
+          duration: const Duration(milliseconds: 150),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 final audioPlayerProvider = StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
   return AudioPlayerController();
 });
@@ -83,7 +120,6 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-  bool _isSearching = false;
 
   @override
   void initState() {
@@ -100,56 +136,50 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _onSearchChanged() {
-    final query = _searchController.text;
-    ref.read(searchQueryProvider.notifier).state = query;
-    setState(() {
-      _isSearching = query.isNotEmpty;
-    });
+    ref.read(searchQueryProvider.notifier).state = _searchController.text;
   }
 
   void _playTrack(Track track) async {
     final controller = ref.read(audioPlayerProvider.notifier);
-    await controller.setUrl(track.audioUrl);
+    await controller.setUrl(track.audioUrl, title: track.title, artist: track.artist);
     await controller.play();
     if (mounted) {
-      Navigator.pushNamed(context, '/player');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Now playing: ${track.title} - ${track.artist}'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final searchResults = ref.watch(searchResultsProvider);
+    final query = ref.watch(searchQueryProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: _isSearching
-            ? TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'Search tracks, artists...',
-                  border: InputBorder.none,
-                  suffixIcon: IconButton(
+        title: TextField(
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          decoration: InputDecoration(
+            hintText: 'Search tracks, artists...',
+            border: InputBorder.none,
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: query.isNotEmpty
+                ? IconButton(
                     icon: const Icon(Icons.clear),
                     onPressed: () {
                       _searchController.clear();
                     },
-                  ),
-                ),
-              )
-            : const Text('Music Player'),
-        actions: [
-          if (!_isSearching)
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () {
-                _searchFocusNode.requestFocus();
-              },
-            ),
-        ],
+                  )
+                : null,
+          ),
+        ),
       ),
-      body: _isSearching
+      body: query.isNotEmpty
           ? _buildSearchResults(searchResults)
           : _buildDashboard(),
     );
@@ -165,31 +195,18 @@ class _HomePageState extends ConsumerState<HomePage> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return GridView.builder(
+      padding: const EdgeInsets.all(12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.75,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
       itemCount: results.length,
       itemBuilder: (context, index) {
         final track = results[index];
-        return ListTile(
-          leading: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Center(
-              child: Icon(Icons.music_note, size: 24),
-            ),
-          ),
-          title: Text(track.title),
-          subtitle: Text(track.artist),
-          trailing: IconButton(
-            icon: const Icon(Icons.play_circle_outline),
-            onPressed: () => _playTrack(track),
-          ),
-          onTap: () => _playTrack(track),
-        );
+        return _buildTrackCard(track);
       },
     );
   }
@@ -249,7 +266,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildTrackCard(Track track) {
-    return GestureDetector(
+    return HoverScale(
       onTap: () => _playTrack(track),
       child: Container(
         width: 140,
@@ -259,7 +276,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           children: [
             Container(
               width: 140,
-              height: 140,
+              height: 130,
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(12),
@@ -323,7 +340,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
         SizedBox(
-          height: 120,
+          height: 140,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -339,7 +356,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildPlaylistCard(Playlist playlist) {
-    return GestureDetector(
+    return HoverScale(
       onTap: () {
         if (playlist.tracks.isNotEmpty) {
           _playTrack(playlist.tracks.first);

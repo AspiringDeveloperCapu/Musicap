@@ -22,47 +22,51 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     });
 
     _player.playerStateStream.listen((playerState) {
+      final processingDone = playerState.processingState == ProcessingState.completed;
       state = state.copyWith(
         isPlaying: playerState.playing,
         processing: playerState.processingState == ProcessingState.loading ||
             playerState.processingState == ProcessingState.buffering,
       );
+      if (processingDone) {
+        state = state.copyWith(isPlaying: false);
+      }
     });
   }
 
-  // Set audio source from URL
-  Future<void> setUrl(String url) async {
-    try {
-      await _player.setUrl(url);
-      _updateState();
-    } catch (e) {
-      rethrow;
-    }
+  Future<void> setUrl(String url, {String? title, String? artist}) async {
+    await _player.setUrl(url);
+    state = state.copyWith(
+      currentTitle: title ?? 'Unknown',
+      currentArtist: artist ?? 'Unknown',
+      currentUrl: url,
+    );
+    _updateState();
   }
 
-  // Set audio source from asset
-  Future<void> setAsset(String assetPath) async {
-    try {
-      await _player.setAsset(assetPath);
-      _updateState();
-    } catch (e) {
-      rethrow;
-    }
+  Future<void> setAsset(String assetPath, {String? title, String? artist}) async {
+    await _player.setAsset(assetPath);
+    state = state.copyWith(
+      currentTitle: title ?? 'Unknown',
+      currentArtist: artist ?? 'Unknown',
+    );
+    _updateState();
   }
 
-  // Play playlist
-  Future<void> setPlaylist(List<String> urls, {int startIndex = 0}) async {
-    try {
-      final sources = urls.map((url) => AudioSource.uri(Uri.parse(url))).toList();
-      final playlist = ConcatenatingAudioSource(children: sources);
-      await _player.setAudioSource(playlist, initialIndex: startIndex);
-      _updateState();
-    } catch (e) {
-      rethrow;
+  Future<void> setPlaylist(List<String> urls, {int startIndex = 0, List<Map<String, String>>? tracks}) async {
+    final sources = urls.map((url) => AudioSource.uri(Uri.parse(url))).toList();
+    final playlist = ConcatenatingAudioSource(children: sources);
+    await _player.setAudioSource(playlist, initialIndex: startIndex);
+    if (tracks != null && startIndex < tracks.length) {
+      state = state.copyWith(
+        currentTitle: tracks[startIndex]['title'] ?? 'Unknown',
+        currentArtist: tracks[startIndex]['artist'] ?? 'Unknown',
+        currentUrl: urls[startIndex],
+      );
     }
+    _updateState();
   }
 
-  // Playback controls
   Future<void> play() async {
     await _player.play();
     _updateState();
@@ -87,13 +91,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _updateState();
   }
 
-  // Seek to position
   Future<void> seek(Duration position) async {
     await _player.seek(position);
     _updateState();
   }
 
-  // Next/Previous (for playlist)
   Future<void> seekToNext() async {
     await _player.seekToNext();
     _updateState();
@@ -104,7 +106,6 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _updateState();
   }
 
-  // Volume & speed
   setVolume(double volume) {
     _player.setVolume(volume);
     _updateState();
@@ -115,22 +116,20 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _updateState();
   }
 
-  // Loop/Repeat
   setLoopMode(LoopMode mode) {
     _player.setLoopMode(mode);
+    state = state.copyWith(loopMode: mode);
     _updateState();
   }
 
-  // Shuffle
   setShuffleMode(bool enabled) {
     _player.setShuffleModeEnabled(enabled);
+    state = state.copyWith(isShuffleEnabled: enabled);
     _updateState();
   }
 
-  // Get current player
   AudioPlayer get player => _player;
 
-  // State updates from player streams
   void _updateState() {
     state = state.copyWith(
       isPlaying: _player.playing,
@@ -138,6 +137,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           _player.processingState == ProcessingState.buffering,
       currentPosition: _player.position,
       totalDuration: _player.duration,
+      hasNext: _player.hasNext,
+      hasPrevious: _player.hasPrevious,
     );
   }
 }
@@ -152,6 +153,9 @@ class AudioPlayerState {
   final bool hasPrevious;
   final bool isShuffleEnabled;
   final LoopMode loopMode;
+  final String currentTitle;
+  final String currentArtist;
+  final String? currentUrl;
 
   AudioPlayerState({
     this.isPlaying = false,
@@ -163,6 +167,9 @@ class AudioPlayerState {
     this.hasPrevious = false,
     this.isShuffleEnabled = false,
     this.loopMode = LoopMode.off,
+    this.currentTitle = '',
+    this.currentArtist = '',
+    this.currentUrl,
   });
 
   AudioPlayerState copyWith({
@@ -175,6 +182,9 @@ class AudioPlayerState {
     bool? hasPrevious,
     bool? isShuffleEnabled,
     LoopMode? loopMode,
+    String? currentTitle,
+    String? currentArtist,
+    String? currentUrl,
   }) {
     return AudioPlayerState(
       isPlaying: isPlaying ?? this.isPlaying,
@@ -186,6 +196,9 @@ class AudioPlayerState {
       hasPrevious: hasPrevious ?? this.hasPrevious,
       isShuffleEnabled: isShuffleEnabled ?? this.isShuffleEnabled,
       loopMode: loopMode ?? this.loopMode,
+      currentTitle: currentTitle ?? this.currentTitle,
+      currentArtist: currentArtist ?? this.currentArtist,
+      currentUrl: currentUrl ?? this.currentUrl,
     );
   }
 }

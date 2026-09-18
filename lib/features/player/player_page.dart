@@ -20,82 +20,78 @@ class PlayerPage extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Artwork
             Container(
-              width: 120,
-              height: 120,
+              width: 220,
+              height: 220,
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.secondary,
-                borderRadius: BorderRadius.circular(16),
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-              child: const Center(
-                child: Icon(Icons.music_note, color: Colors.white, size: 48),
+              child: Center(
+                child: Icon(
+                  Icons.music_note,
+                  size: 80,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 32),
 
-            // Track info
-            Column(
-              children: [
-                Text(
-                  'Now Playing',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Sample Track',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                    fontSize: 16,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  'Artist Name',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                    fontSize: 12,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+            Text(
+              state.currentTitle.isNotEmpty ? state.currentTitle : 'No Track',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const Spacer(),
+            const SizedBox(height: 4),
+            Text(
+              state.currentArtist.isNotEmpty ? state.currentArtist : 'Unknown Artist',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 32),
 
-            // Seek bar + progress
-            _SeekBar(
+            _InteractiveSeekBar(
               position: state.currentPosition ?? Duration.zero,
               duration: state.totalDuration ?? Duration.zero,
-              onSeek: () {
-                // Seek to 30 seconds as example
-                ref.read(audioPlayerProvider.notifier).seek(Duration(seconds: 30));
+              onSeek: (position) {
+                ref.read(audioPlayerProvider.notifier).seek(position);
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
 
-            // Duration text
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  state.currentPosition != null
-                      ? _formatDuration(state.currentPosition!)
-                      : '0:00',
+                  _formatDuration(state.currentPosition ?? Duration.zero),
+                  style: const TextStyle(fontSize: 12),
                 ),
                 Text(
-                  state.totalDuration != null
-                      ? _formatDuration(state.totalDuration!)
-                      : '0:00',
+                  _formatDuration(state.totalDuration ?? Duration.zero),
+                  style: const TextStyle(fontSize: 12),
                 ),
               ],
             ),
-            const Spacer(),
+            const SizedBox(height: 32),
 
-            // Playback controls - using state from provider
             _PlaybackControls(
               isPlaying: state.isPlaying,
               hasNext: state.hasNext,
@@ -110,9 +106,8 @@ class PlayerPage extends ConsumerWidget {
                 ref.read(audioPlayerProvider.notifier).seekToPrevious();
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
 
-            // Shuffle & Loop controls
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -121,7 +116,7 @@ class PlayerPage extends ConsumerWidget {
                     Icons.shuffle,
                     color: state.isShuffleEnabled
                         ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                   ),
                   onPressed: () {
                     ref.read(audioPlayerProvider.notifier).setShuffleMode(!state.isShuffleEnabled);
@@ -135,7 +130,7 @@ class PlayerPage extends ConsumerWidget {
                         : Icons.repeat,
                     color: state.loopMode != LoopMode.off
                         ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                        : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                   ),
                   onPressed: () {
                     final nextMode = state.loopMode == LoopMode.off
@@ -162,48 +157,66 @@ class PlayerPage extends ConsumerWidget {
   }
 }
 
-class _SeekBar extends StatelessWidget {
+class _InteractiveSeekBar extends StatefulWidget {
   final Duration position;
   final Duration duration;
-  final VoidCallback onSeek;
+  final ValueChanged<Duration> onSeek;
 
-  const _SeekBar({
+  const _InteractiveSeekBar({
     required this.position,
     required this.duration,
     required this.onSeek,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        LinearProgressIndicator(
-          value: duration.inSeconds > 0 ? position.inSeconds / duration.inSeconds : 0.0,
-          semanticsLabel: 'Progress',
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              _formatDuration(position),
-              style: const TextStyle(fontSize: 12),
-            ),
-            Text(
-              _formatDuration(duration),
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+  State<_InteractiveSeekBar> createState() => _InteractiveSeekBarState();
+}
 
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final minutes = twoDigits(duration.inMinutes);
-    final seconds = twoDigits(duration.inSeconds.remainder(60));
-    return '$minutes:$seconds';
+class _InteractiveSeekBarState extends State<_InteractiveSeekBar> {
+  bool _isDragging = false;
+  double _dragValue = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = widget.duration.inMilliseconds > 0
+        ? (_isDragging
+            ? _dragValue
+            : widget.position.inMilliseconds / widget.duration.inMilliseconds)
+        : 0.0;
+
+    return SliderTheme(
+      data: SliderThemeData(
+        trackHeight: 4,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+        activeTrackColor: Theme.of(context).colorScheme.primary,
+        inactiveTrackColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        thumbColor: Theme.of(context).colorScheme.primary,
+      ),
+      child: Slider(
+        value: value.clamp(0.0, 1.0),
+        onChangeStart: (v) {
+          setState(() {
+            _isDragging = true;
+            _dragValue = v;
+          });
+        },
+        onChanged: (v) {
+          setState(() {
+            _dragValue = v;
+          });
+        },
+        onChangeEnd: (v) {
+          setState(() {
+            _isDragging = false;
+          });
+          final position = Duration(
+            milliseconds: (v * widget.duration.inMilliseconds).round(),
+          );
+          widget.onSeek(position);
+        },
+      ),
+    );
   }
 }
 
@@ -236,9 +249,10 @@ class _PlaybackControls extends StatelessWidget {
         ),
         const SizedBox(width: 24),
         _ControlButton(
-          icon: isPlaying ? Icons.pause : Icons.play_arrow,
+          icon: isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
           onPressed: onPlayPause,
           label: isPlaying ? 'Pause' : 'Play',
+          size: 56,
         ),
         const SizedBox(width: 24),
         _ControlButton(
@@ -255,23 +269,28 @@ class _ControlButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
   final String label;
+  final double size;
 
   const _ControlButton({
     required this.icon,
     this.onPressed,
     required this.label,
+    this.size = 36,
   });
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: label,
-      child: IconButton(
-        icon: Icon(icon, size: 36),
-        onPressed: onPressed,
-        color: onPressed != null
-            ? Theme.of(context).colorScheme.onSurface
-            : Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+      child: MouseRegion(
+        cursor: onPressed != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: IconButton(
+          icon: Icon(icon, size: size),
+          onPressed: onPressed,
+          color: onPressed != null
+              ? Theme.of(context).colorScheme.onSurface
+              : Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
+        ),
       ),
     );
   }
