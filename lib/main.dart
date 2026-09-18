@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
 import 'features/playlist/playlist_page.dart';
+import 'features/playlist/playlist_detail_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
 import 'models/track.dart';
@@ -626,9 +627,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget _buildPlaylistCard(Playlist playlist) {
     return HoverScale(
       onTap: () {
-        if (playlist.tracks.isNotEmpty) {
-          _playTrack(playlist.tracks.first, fromQueue: playlist.tracks);
-        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlaylistDetailPage(playlistId: playlist.id),
+          ),
+        );
       },
       child: Container(
         width: 120,
