@@ -89,20 +89,27 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
   }
 
   /// Adds a track to a playlist. Prevents duplicates by track ID.
-  void addTrackToPlaylist(String playlistId, Track track) {
+  /// Returns true if the track was added, false if it was already present.
+  bool addTrackToPlaylist(String playlistId, Track track) {
+    final targetPlaylist = state.firstWhere(
+      (p) => p.id == playlistId,
+      orElse: () => Playlist(id: '', name: '', tracks: []),
+    );
+    if (targetPlaylist.id.isEmpty) return false;
+    if (targetPlaylist.tracks.any((t) => t.id == track.id)) return false;
+
     state = [
       for (final p in state)
         if (p.id == playlistId)
           Playlist(
             id: p.id,
             name: p.name,
-            tracks: p.tracks.any((t) => t.id == track.id)
-                ? p.tracks
-                : [...p.tracks, track],
+            tracks: [...p.tracks, track],
           )
         else
           p,
     ];
+    return true;
   }
 
   /// Removes a track from a playlist by track index.

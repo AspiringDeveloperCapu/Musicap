@@ -346,14 +346,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                 title: Text(playlist.name),
                 subtitle: Text('${playlist.tracks.length} tracks'),
                 onTap: () {
-                  ref.read(playlistManagerProvider.notifier).addTrackToPlaylist(
+                  final added = ref.read(playlistManagerProvider.notifier).addTrackToPlaylist(
                     playlist.id,
                     track,
                   );
                   Navigator.of(context).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Added "${track.title}" to "${playlist.name}"'),
+                      content: Text(
+                        added
+                            ? 'Added "${track.title}" to "${playlist.name}"'
+                            : '"${track.title}" is already in "${playlist.name}"',
+                      ),
                       duration: const Duration(seconds: 1),
                     ),
                   );
@@ -436,7 +440,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget _buildDashboard() {
     final recentlyPlayed = ref.watch(recentlyPlayedProvider);
     final recommendations = ref.watch(recommendationsProvider);
-    final playlists = ref.watch(playlistsProvider);
+    final playlists = ref.watch(playlistManagerProvider);
 
     return SingleChildScrollView(
       child: Column(

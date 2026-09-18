@@ -78,7 +78,7 @@ final searchResultsProvider = Provider<List<Track>>((ref) {
   final allTracks = [
     ...ref.watch(recentlyPlayedProvider),
     ...ref.watch(recommendationsProvider),
-    ...ref.watch(playlistsProvider).expand((p) => p.tracks),
+    ...ref.watch(playlistManagerProvider).expand((p) => p.tracks),
   ];
 
   return allTracks.where((track) {
