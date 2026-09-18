@@ -46,10 +46,6 @@ class _HoverScaleState extends State<HoverScale> {
   }
 }
 
-final audioPlayerProvider = StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
-  return AudioPlayerController();
-});
-
 class MusicPlayerApp extends ConsumerWidget {
   const MusicPlayerApp({super.key});
 
@@ -87,6 +83,19 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(audioPlayerProvider);
+
+    if (state.error != null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(state.error!),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        ref.read(audioPlayerProvider.notifier).clearError();
+      });
+    }
 
     final miniPosition = state.totalDuration != null &&
             state.totalDuration!.inMilliseconds > 0 &&
@@ -197,12 +206,30 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         ),
                         IconButton(
                           icon: Icon(
+                            state.hasPrevious ? Icons.skip_previous : Icons.skip_previous,
+                            size: 24,
+                          ),
+                          onPressed: state.hasPrevious
+                              ? () => ref.read(audioPlayerProvider.notifier).seekToPrevious()
+                              : null,
+                        ),
+                        IconButton(
+                          icon: Icon(
                             state.isPlaying ? Icons.pause : Icons.play_arrow,
                             size: 28,
                           ),
                           onPressed: () {
                             ref.read(audioPlayerProvider.notifier).playOrPause();
                           },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.skip_next,
+                            size: 24,
+                          ),
+                          onPressed: state.hasNext
+                              ? () => ref.read(audioPlayerProvider.notifier).seekToNext()
+                              : null,
                         ),
                       ],
                     ),
@@ -258,10 +285,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     ref.read(searchQueryProvider.notifier).state = _searchController.text;
   }
 
-  void _playTrack(Track track) async {
+  void _playTrack(Track track, {required List<Track> fromQueue}) async {
     final controller = ref.read(audioPlayerProvider.notifier);
-    await controller.setUrl(track.audioUrl, title: track.title, artist: track.artist);
-    await controller.play();
+    final index = fromQueue.indexOf(track);
+    await controller.playTrack(track, fromQueue: fromQueue, startIndex: index >= 0 ? index : 0);
     if (mounted) {
       Navigator.pushNamed(context, '/player');
     }
@@ -319,7 +346,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       itemCount: results.length,
       itemBuilder: (context, index) {
         final track = results[index];
-        return _buildTrackCard(track);
+        return _buildTrackCard(track, fromQueue: results);
       },
     );
   }
@@ -370,7 +397,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             itemCount: tracks.length,
             itemBuilder: (context, index) {
               final track = tracks[index];
-              return _buildTrackCard(track);
+              return _buildTrackCard(track, fromQueue: tracks);
             },
           ),
         ),
@@ -378,9 +405,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildTrackCard(Track track) {
+  Widget _buildTrackCard(Track track, {required List<Track> fromQueue}) {
     return HoverScale(
-      onTap: () => _playTrack(track),
+      onTap: () => _playTrack(track, fromQueue: fromQueue),
       child: Container(
         width: 140,
         margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -445,7 +472,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               ),
               TextButton(
                 onPressed: () {
-                  // Navigate to playlists tab
+                  setState(() {});
                 },
                 child: const Text('See all'),
               ),
@@ -472,7 +499,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     return HoverScale(
       onTap: () {
         if (playlist.tracks.isNotEmpty) {
-          _playTrack(playlist.tracks.first);
+          _playTrack(playlist.tracks.first, fromQueue: playlist.tracks);
         }
       },
       child: Container(
@@ -581,11 +608,8 @@ Future<void> main() async {
   );
 
   runApp(
-    ProviderScope(
-      overrides: [
-        audioPlayerProvider.overrideWith((ref) => AudioPlayerController()),
-      ],
-      child: const MusicPlayerApp(),
+    const ProviderScope(
+      child: MusicPlayerApp(),
     ),
   );
 }

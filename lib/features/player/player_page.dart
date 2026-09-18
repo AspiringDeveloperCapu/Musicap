@@ -35,11 +35,13 @@ class PlayerPage extends ConsumerWidget {
                 ],
               ),
               child: Center(
-                child: Icon(
-                  Icons.music_note,
-                  size: 80,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                child: state.processing
+                    ? const CircularProgressIndicator()
+                    : Icon(
+                        Icons.music_note,
+                        size: 80,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
               ),
             ),
             const SizedBox(height: 32),
@@ -143,6 +145,17 @@ class PlayerPage extends ConsumerWidget {
                 ),
               ],
             ),
+
+            if (state.queue.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Text(
+                '${state.currentIndex + 1} / ${state.queue.length}',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ],
         ),
       ),

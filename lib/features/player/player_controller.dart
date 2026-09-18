@@ -1,5 +1,6 @@
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_player/models/track.dart';
 
 final audioPlayerProvider = StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
   return AudioPlayerController();
@@ -21,50 +22,74 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       state = state.copyWith(totalDuration: duration);
     });
 
+    _player.currentIndexStream.listen((index) {
+      if (index != null && index < state.queue.length) {
+        final track = state.queue[index];
+        state = state.copyWith(
+          currentIndex: index,
+          currentTitle: track.title,
+          currentArtist: track.artist,
+          currentUrl: track.audioUrl,
+          hasNext: _player.hasNext,
+          hasPrevious: _player.hasPrevious,
+        );
+      }
+    });
+
     _player.playerStateStream.listen((playerState) {
       final processingDone = playerState.processingState == ProcessingState.completed;
       state = state.copyWith(
         isPlaying: playerState.playing,
         processing: playerState.processingState == ProcessingState.loading ||
             playerState.processingState == ProcessingState.buffering,
+        hasNext: _player.hasNext,
+        hasPrevious: _player.hasPrevious,
       );
       if (processingDone) {
         state = state.copyWith(isPlaying: false);
       }
     });
-  }
 
-  Future<void> setUrl(String url, {String? title, String? artist}) async {
-    await _player.setUrl(url);
-    state = state.copyWith(
-      currentTitle: title ?? 'Unknown',
-      currentArtist: artist ?? 'Unknown',
-      currentUrl: url,
+    _player.playbackEventStream.listen(
+      (_) {},
+      onError: (Object e, StackTrace st) {
+        state = state.copyWith(error: 'Playback error: $e');
+      },
     );
-    _updateState();
   }
 
-  Future<void> setAsset(String assetPath, {String? title, String? artist}) async {
-    await _player.setAsset(assetPath);
-    state = state.copyWith(
-      currentTitle: title ?? 'Unknown',
-      currentArtist: artist ?? 'Unknown',
-    );
-    _updateState();
-  }
+  Future<void> playTrack(Track track, {List<Track>? fromQueue, int? startIndex}) async {
+    final queue = fromQueue ?? [track];
+    final index = startIndex ?? queue.indexOf(track);
 
-  Future<void> setPlaylist(List<String> urls, {int startIndex = 0, List<Map<String, String>>? tracks}) async {
-    final sources = urls.map((url) => AudioSource.uri(Uri.parse(url))).toList();
-    final playlist = ConcatenatingAudioSource(children: sources);
-    await _player.setAudioSource(playlist, initialIndex: startIndex);
-    if (tracks != null && startIndex < tracks.length) {
-      state = state.copyWith(
-        currentTitle: tracks[startIndex]['title'] ?? 'Unknown',
-        currentArtist: tracks[startIndex]['artist'] ?? 'Unknown',
-        currentUrl: urls[startIndex],
+    try {
+      final sources = queue.map((t) => AudioSource.uri(
+        Uri.parse(t.audioUrl),
+        tag: t.id,
+      )).toList();
+      final concatenating = ConcatenatingAudioSource(children: sources);
+
+      await _player.setAudioSource(
+        concatenating,
+        initialIndex: index.clamp(0, queue.length - 1),
       );
+
+      final current = queue[index.clamp(0, queue.length - 1)];
+      state = state.copyWith(
+        queue: queue,
+        currentIndex: index.clamp(0, queue.length - 1),
+        currentTitle: current.title,
+        currentArtist: current.artist,
+        currentUrl: current.audioUrl,
+        hasNext: _player.hasNext,
+        hasPrevious: _player.hasPrevious,
+        error: null,
+      );
+
+      await _player.play();
+    } catch (e) {
+      state = state.copyWith(error: 'Failed to play: $e');
     }
-    _updateState();
   }
 
   Future<void> play() async {
@@ -97,35 +122,33 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   }
 
   Future<void> seekToNext() async {
-    await _player.seekToNext();
-    _updateState();
+    if (_player.hasNext) {
+      await _player.seekToNext();
+      _updateState();
+    }
   }
 
   Future<void> seekToPrevious() async {
-    await _player.seekToPrevious();
-    _updateState();
-  }
-
-  setVolume(double volume) {
-    _player.setVolume(volume);
-    _updateState();
-  }
-
-  setSpeed(double speed) {
-    _player.setSpeed(speed);
+    if (_player.position.inSeconds > 3) {
+      await _player.seek(Duration.zero);
+    } else if (_player.hasPrevious) {
+      await _player.seekToPrevious();
+    }
     _updateState();
   }
 
   setLoopMode(LoopMode mode) {
     _player.setLoopMode(mode);
     state = state.copyWith(loopMode: mode);
-    _updateState();
   }
 
   setShuffleMode(bool enabled) {
     _player.setShuffleModeEnabled(enabled);
     state = state.copyWith(isShuffleEnabled: enabled);
-    _updateState();
+  }
+
+  clearError() {
+    state = state.copyWith(error: null);
   }
 
   AudioPlayer get player => _player;
@@ -156,6 +179,8 @@ class AudioPlayerState {
   final String currentTitle;
   final String currentArtist;
   final String? currentUrl;
+  final List<Track> queue;
+  final String? error;
 
   AudioPlayerState({
     this.isPlaying = false,
@@ -170,6 +195,8 @@ class AudioPlayerState {
     this.currentTitle = '',
     this.currentArtist = '',
     this.currentUrl,
+    this.queue = const [],
+    this.error,
   });
 
   AudioPlayerState copyWith({
@@ -185,6 +212,8 @@ class AudioPlayerState {
     String? currentTitle,
     String? currentArtist,
     String? currentUrl,
+    List<Track>? queue,
+    String? error,
   }) {
     return AudioPlayerState(
       isPlaying: isPlaying ?? this.isPlaying,
@@ -199,6 +228,8 @@ class AudioPlayerState {
       currentTitle: currentTitle ?? this.currentTitle,
       currentArtist: currentArtist ?? this.currentArtist,
       currentUrl: currentUrl ?? this.currentUrl,
+      queue: queue ?? this.queue,
+      error: error,
     );
   }
 }
