@@ -6,6 +6,7 @@ import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
 import 'features/playlist/playlist_page.dart';
 import 'providers/music_provider.dart';
+import 'providers/playlist_manager.dart';
 import 'models/track.dart';
 import 'audio_handler.dart';
 
@@ -55,6 +56,7 @@ class MusicPlayerApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Music Player',
       theme: ThemeData(
         primarySwatch: Colors.indigo,
@@ -321,6 +323,54 @@ class _HomePageState extends ConsumerState<HomePage> {
     await controller.playTrack(track, fromQueue: fromQueue, startIndex: index >= 0 ? index : 0);
   }
 
+  /// Shows a dialog listing all playlists, allowing the user to add a track.
+  void _showAddToPlaylistDialog(BuildContext context, WidgetRef ref, Track track) {
+    final playlists = ref.read(playlistManagerProvider);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Add "${track.title}" to playlist'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: playlists.length,
+            itemBuilder: (context, index) {
+              final playlist = playlists[index];
+              return ListTile(
+                leading: Icon(
+                  Icons.queue_music,
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
+                title: Text(playlist.name),
+                subtitle: Text('${playlist.tracks.length} tracks'),
+                onTap: () {
+                  ref.read(playlistManagerProvider.notifier).addTrackToPlaylist(
+                    playlist.id,
+                    track,
+                  );
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Added "${track.title}" to "${playlist.name}"'),
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final searchResults = ref.watch(searchResultsProvider);
@@ -487,12 +537,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                             duration: const Duration(seconds: 1),
                           ),
                         );
+                      } else if (value == 'addToPlaylist') {
+                        _showAddToPlaylistDialog(context, ref, track);
                       }
                     },
                     itemBuilder: (context) => [
                       const PopupMenuItem(
                         value: 'addQueue',
                         child: Text('Add to queue'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'addToPlaylist',
+                        child: Text('Add to playlist'),
                       ),
                     ],
                   ),

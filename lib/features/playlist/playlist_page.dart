@@ -2,23 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
-import 'package:music_player/providers/music_provider.dart';
+import 'package:music_player/providers/playlist_manager.dart';
+import 'package:music_player/features/playlist/playlist_detail_page.dart';
 import 'package:music_player/models/track.dart';
 
 /// Library page that displays available playlists and the current playback queue.
-/// Tapping a playlist loads all its tracks as the queue and starts playing.
-/// The queue section shows all tracks with the currently playing track highlighted.
+/// Tapping a playlist navigates to its detail view.
+/// Includes a "Create Playlist" button to add new playlists.
 class PlaylistPage extends ConsumerWidget {
   const PlaylistPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(audioPlayerProvider);
-    final playlists = ref.watch(playlistsProvider);
+    final playlists = ref.watch(playlistManagerProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Library'),
+        actions: [
+          // Create new playlist button
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showCreatePlaylistDialog(context, ref),
+          ),
+        ],
       ),
       body: ListView(
         children: [
@@ -38,24 +46,25 @@ class PlaylistPage extends ConsumerWidget {
           ...playlists.map((playlist) => _PlaylistTile(
                 playlist: playlist,
                 onTap: () {
-                  // Play the entire playlist as a queue starting from the first track.
-                  ref.read(audioPlayerProvider.notifier).playTrack(
-                        playlist.tracks.first,
-                        fromQueue: playlist.tracks,
-                        startIndex: 0,
-                      );
+                  // Navigate to playlist detail page.
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlaylistDetailPage(playlistId: playlist.id),
+                    ),
+                  );
                 },
               )),
           const Divider(indent: 16, endIndent: 16),
 
-          // "Now Playing" section header with track count.
+          // "Queue / Now Playing" section header with track count.
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Now Playing',
+                  'Queue / Now Playing',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -147,6 +156,45 @@ class PlaylistPage extends ConsumerWidget {
                 ),
               );
             }),
+        ],
+      ),
+    );
+  }
+
+  /// Shows a dialog to create a new playlist.
+  void _showCreatePlaylistDialog(BuildContext context, WidgetRef ref) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Create Playlist'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Playlist name',
+          ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              ref.read(playlistManagerProvider.notifier).createPlaylist(value.trim());
+              Navigator.of(context).pop();
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                ref.read(playlistManagerProvider.notifier).createPlaylist(controller.text.trim());
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text('Create'),
+          ),
         ],
       ),
     );

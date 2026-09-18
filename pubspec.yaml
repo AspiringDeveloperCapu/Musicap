@@ -42,6 +42,9 @@ dependencies:
   # UI helper widgets
   flutter_svg: ^2.0.7
 
+  # UUID generation for playlist IDs
+  uuid: ^4.2.1
+
   # Image caching
   cached_network_image: ^3.3.0
 
