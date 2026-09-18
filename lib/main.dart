@@ -9,6 +9,8 @@ import 'providers/music_provider.dart';
 import 'models/track.dart';
 import 'audio_handler.dart';
 
+/// Reusable widget that scales up slightly on hover and responds to taps.
+/// Used on track cards and playlist cards for a hover interaction effect.
 class HoverScale extends StatefulWidget {
   final Widget child;
   final double scale;
@@ -46,6 +48,7 @@ class _HoverScaleState extends State<HoverScale> {
   }
 }
 
+/// Root app widget. Sets up Material 3 theming, routes, and the main screen.
 class MusicPlayerApp extends ConsumerWidget {
   const MusicPlayerApp({super.key});
 
@@ -68,6 +71,8 @@ class MusicPlayerApp extends ConsumerWidget {
   }
 }
 
+/// Main screen with a bottom navigation bar and a persistent mini player.
+/// Uses IndexedStack to preserve tab state across switches.
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
@@ -84,6 +89,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(audioPlayerProvider);
 
+    // Show error snackbar if the player encounters an error, then clear it.
     if (state.error != null && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -97,6 +103,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       });
     }
 
+    // Calculate mini player slider position (0.0 to 1.0).
+    // During drag, use the drag value; otherwise compute from position/duration.
     final miniPosition = state.totalDuration != null &&
             state.totalDuration!.inMilliseconds > 0 &&
             state.currentPosition != null
@@ -117,12 +125,14 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Mini player: only visible when a track is loaded.
           if (state.currentTitle.isNotEmpty)
             Container(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Mini player progress slider.
                   SliderTheme(
                     data: SliderThemeData(
                       trackHeight: 3,
@@ -156,10 +166,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                       },
                     ),
                   ),
+                  // Mini player track info row — tapping navigates to full player.
                   Padding(
                     padding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
                     child: GestureDetector(
                       onTap: () {
+                        // Prevent pushing /player if already on it.
                         if (ModalRoute.of(context)?.settings.name != '/player') {
                           Navigator.pushNamed(context, '/player');
                         }
@@ -208,6 +220,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                       ),
                     ),
                   ),
+                  // Mini player playback controls (prev / play-pause / next).
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Row(
@@ -248,6 +261,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 ],
               ),
             ),
+          // Bottom navigation bar for switching between Home, Queue, and Settings.
           BottomNavigationBar(
             currentIndex: _currentIndex,
             onTap: (index) {
@@ -267,6 +281,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 }
 
+/// Home page with a search bar in the AppBar and a dashboard of
+/// Recently Played, Recommended, and Playlists sections.
+/// Search results display in a grid view.
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
@@ -292,10 +309,12 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.dispose();
   }
 
+  /// Syncs the search text field input to the Riverpod search query provider.
   void _onSearchChanged() {
     ref.read(searchQueryProvider.notifier).state = _searchController.text;
   }
 
+  /// Plays a track within the context of a given queue (section or playlist).
   void _playTrack(Track track, {required List<Track> fromQueue}) async {
     final controller = ref.read(audioPlayerProvider.notifier);
     final index = fromQueue.indexOf(track);
@@ -309,6 +328,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     return Scaffold(
       appBar: AppBar(
+        // Search bar is permanently in the AppBar for quick access.
         title: TextField(
           controller: _searchController,
           focusNode: _searchFocusNode,
@@ -327,12 +347,14 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
       ),
+      // Show search results grid if searching, otherwise show the dashboard.
       body: query.isNotEmpty
           ? _buildSearchResults(searchResults)
           : _buildDashboard(),
     );
   }
 
+  /// Builds a 2-column grid of track cards from the search results.
   Widget _buildSearchResults(List<Track> results) {
     if (results.isEmpty) {
       return const Center(
@@ -359,6 +381,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// Builds the dashboard view with Recently Played, Recommended, and Playlists.
   Widget _buildDashboard() {
     final recentlyPlayed = ref.watch(recentlyPlayedProvider);
     final recommendations = ref.watch(recommendationsProvider);
@@ -383,6 +406,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// Builds a horizontally scrollable section with a title and track cards.
   Widget _buildSection({required String title, required List<Track> tracks}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -413,6 +437,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// Builds a single track card with album art placeholder, title, artist,
+  /// and a 3-dot menu for "Add to queue".
   Widget _buildTrackCard(Track track, {required List<Track> fromQueue}) {
     return HoverScale(
       onTap: () => _playTrack(track, fromQueue: fromQueue),
@@ -422,20 +448,56 @@ class _HomePageState extends ConsumerState<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 140,
-              height: 130,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.music_note,
-                  size: 48,
-                  color: Theme.of(context).colorScheme.primary,
+            Stack(
+              children: [
+                // Album art placeholder.
+                Container(
+                  width: 140,
+                  height: 130,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.music_note,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
                 ),
-              ),
+                // 3-dot menu overlay for queue actions.
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.more_vert,
+                      size: 20,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onSelected: (value) {
+                      if (value == 'addQueue') {
+                        ref.read(audioPlayerProvider.notifier).addToQueue(track);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Added "${track.title}" to queue'),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'addQueue',
+                        child: Text('Add to queue'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
@@ -462,6 +524,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// Builds a horizontally scrollable playlist section.
   Widget _buildPlaylistsSection(List<Playlist> playlists) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,6 +566,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// Builds a single playlist card with a 3-dot menu for "Add all to queue".
   Widget _buildPlaylistCard(Playlist playlist) {
     return HoverScale(
       onTap: () {
@@ -516,20 +580,57 @@ class _HomePageState extends ConsumerState<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 120,
-              height: 80,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.queue_music,
-                  size: 32,
-                  color: Theme.of(context).colorScheme.secondary,
+            Stack(
+              children: [
+                Container(
+                  width: 120,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.queue_music,
+                      size: 32,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
+                  ),
                 ),
-              ),
+                // 3-dot menu overlay for queue actions.
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: PopupMenuButton<String>(
+                    icon: Icon(
+                      Icons.more_vert,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onSelected: (value) {
+                      if (value == 'addAllQueue') {
+                        for (final track in playlist.tracks) {
+                          ref.read(audioPlayerProvider.notifier).addToQueue(track);
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Added ${playlist.tracks.length} tracks to queue'),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'addAllQueue',
+                        child: Text('Add all to queue'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
@@ -555,6 +656,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 }
 
+/// Simple settings page with an About dialog.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
@@ -600,8 +702,11 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+/// Global audio handler instance for background audio playback via audio_service.
 late MusicAudioHandler _audioHandler;
 
+/// App entry point. Initializes Flutter bindings, audio service for background
+/// playback, and launches the app with a Riverpod ProviderScope.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 

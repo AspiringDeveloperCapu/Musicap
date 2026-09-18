@@ -1,6 +1,9 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
+/// Audio handler for background/media session integration via audio_service.
+/// Bridges just_audio's AudioPlayer with the system's media notification controls
+/// (lock screen, notification bar, Bluetooth, etc.).
 class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
@@ -8,11 +11,15 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
     _init();
   }
 
+  /// Sets up stream listeners to pipe playback events to the system
+  /// and track current media item changes.
   Future<void> _init() async {
-    // Load audio from URL
+    // Transform just_audio playback events into audio_service PlaybackState
+    // and pipe them to the system media session.
     _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
 
-    // Handle media item changes
+    // Update the current media item (shown in notification) when the
+    // track index changes in the playlist.
     _player.currentIndexStream.listen((index) {
       if (index != null && _player.sequence != null) {
         final sequence = _player.sequence!;
@@ -23,6 +30,7 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
     });
   }
 
+  /// Loads and plays a single audio URL with optional metadata.
   Future<void> loadUrl(String url, {String? title, String? artist}) async {
     await _player.setUrl(url);
     mediaItem.add(MediaItem(
@@ -33,6 +41,7 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
     ));
   }
 
+  /// Loads a list of audio URLs as a playlist and starts from [startIndex].
   Future<void> loadPlaylist(List<String> urls, {int startIndex = 0}) async {
     final sources = urls.map((url) => AudioSource.uri(
       Uri.parse(url),
@@ -60,6 +69,7 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> skipToPrevious() => _player.seekToPrevious();
 
+  /// Maps audio_service repeat modes to just_audio loop modes.
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode mode) async {
     switch (mode) {
@@ -77,11 +87,14 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
+  /// Enables or disables shuffle based on the audio_service shuffle mode.
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode mode) async {
     _player.setShuffleModeEnabled(mode == AudioServiceShuffleMode.all);
   }
 
+  /// Converts a just_audio PlaybackEvent into an audio_service PlaybackState
+  /// that the system media session can understand and display.
   PlaybackState _transformEvent(PlaybackEvent event) {
     return PlaybackState(
       controls: [
@@ -111,11 +124,13 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
     );
   }
 
+  /// Called when the app is removed from recent tasks — stops playback cleanly.
   @override
   Future<void> onTaskRemoved() async {
     await stop();
     await super.onTaskRemoved();
   }
 
+  /// Exposes the underlying AudioPlayer for direct access if needed.
   AudioPlayer get player => _player;
 }

@@ -5,6 +5,9 @@ import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/providers/music_provider.dart';
 import 'package:music_player/models/track.dart';
 
+/// Library page that displays available playlists and the current playback queue.
+/// Tapping a playlist loads all its tracks as the queue and starts playing.
+/// The queue section shows all tracks with the currently playing track highlighted.
 class PlaylistPage extends ConsumerWidget {
   const PlaylistPage({super.key});
 
@@ -19,6 +22,7 @@ class PlaylistPage extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          // "Your Playlists" section header.
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Text(
@@ -30,9 +34,11 @@ class PlaylistPage extends ConsumerWidget {
               ),
             ),
           ),
+          // Render each playlist as a tappable tile.
           ...playlists.map((playlist) => _PlaylistTile(
                 playlist: playlist,
                 onTap: () {
+                  // Play the entire playlist as a queue starting from the first track.
                   ref.read(audioPlayerProvider.notifier).playTrack(
                         playlist.tracks.first,
                         fromQueue: playlist.tracks,
@@ -41,6 +47,8 @@ class PlaylistPage extends ConsumerWidget {
                 },
               )),
           const Divider(indent: 16, endIndent: 16),
+
+          // "Now Playing" section header with track count.
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Row(
@@ -65,6 +73,7 @@ class PlaylistPage extends ConsumerWidget {
               ],
             ),
           ),
+          // Show empty state or the current queue list.
           if (state.queue.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40),
@@ -85,6 +94,7 @@ class PlaylistPage extends ConsumerWidget {
               return MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: ListTile(
+                  // Leading icon: equalizer if playing, music note otherwise.
                   leading: Container(
                     width: 40,
                     height: 40,
@@ -127,6 +137,7 @@ class PlaylistPage extends ConsumerWidget {
                         )
                       : null,
                   onTap: () {
+                    // Jump to this track in the current queue.
                     ref.read(audioPlayerProvider.notifier).playTrack(
                           track,
                           fromQueue: state.queue,
@@ -142,6 +153,7 @@ class PlaylistPage extends ConsumerWidget {
   }
 }
 
+/// A single playlist row tile with an icon, name, track count, and play button.
 class _PlaylistTile extends StatelessWidget {
   final Playlist playlist;
   final VoidCallback onTap;

@@ -4,6 +4,8 @@ import 'package:just_audio/just_audio.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
 
+/// Full-screen "Now Playing" page. Shows album art, track info, a seek bar,
+/// playback controls, shuffle/loop toggles, and a reorderable queue list.
 class PlayerPage extends ConsumerWidget {
   const PlayerPage({super.key});
 
@@ -15,9 +17,11 @@ class PlayerPage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Now Playing'),
       ),
+      // ListView makes the entire page scrollable, including the queue list.
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
         children: [
+          // Album art placeholder — shows a loading spinner while buffering.
           Center(
             child: Container(
               width: 220,
@@ -46,6 +50,7 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 32),
 
+          // Track title.
           Center(
             child: Text(
               state.currentTitle.isNotEmpty ? state.currentTitle : 'No Track',
@@ -60,6 +65,8 @@ class PlayerPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 4),
+
+          // Artist name.
           Center(
             child: Text(
               state.currentArtist.isNotEmpty ? state.currentArtist : 'Unknown Artist',
@@ -74,6 +81,7 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 32),
 
+          // Interactive seek bar — handles drag-to-seek.
           _InteractiveSeekBar(
             position: state.currentPosition ?? Duration.zero,
             duration: state.totalDuration ?? Duration.zero,
@@ -83,6 +91,7 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
 
+          // Time labels (current position / total duration).
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -98,6 +107,7 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 32),
 
+          // Main playback controls: previous, play/pause, next.
           _PlaybackControls(
             isPlaying: state.isPlaying,
             hasNext: state.hasNext,
@@ -114,6 +124,7 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
+          // Shuffle and loop mode toggles.
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -139,6 +150,7 @@ class PlayerPage extends ConsumerWidget {
                       : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                 ),
                 onPressed: () {
+                  // Cycle through: off -> all -> one -> off
                   final nextMode = state.loopMode == LoopMode.off
                       ? LoopMode.all
                       : state.loopMode == LoopMode.all
@@ -150,6 +162,7 @@ class PlayerPage extends ConsumerWidget {
             ],
           ),
 
+          // Up Next queue section — only shown when there are tracks in the queue.
           if (state.queue.isNotEmpty) ...[
             const SizedBox(height: 32),
             Padding(
@@ -176,74 +189,123 @@ class PlayerPage extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 8),
-            ...List.generate(state.queue.length, (index) {
-              final track = state.queue[index];
-              final isPlaying = index == state.currentIndex;
+            // Reorderable list — drag tracks to rearrange the queue.
+            // Default drag handles disabled; using a custom drag icon instead.
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: state.queue.length,
+              onReorder: (oldIndex, newIndex) {
+                ref.read(audioPlayerProvider.notifier).reorderQueue(oldIndex, newIndex);
+              },
+              itemBuilder: (context, index) {
+                final track = state.queue[index];
+                final isPlaying = index == state.currentIndex;
 
-              return MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isPlaying
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: isPlaying && state.isPlaying
-                          ? const Icon(Icons.equalizer, color: Colors.white, size: 20)
-                          : isPlaying
-                              ? Icon(
-                                  Icons.play_arrow,
-                                  color: Colors.white,
-                                  size: 20,
-                                )
-                              : Text(
-                                  '${index + 1}',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: Theme.of(context).colorScheme.primary,
+                return MouseRegion(
+                  key: ValueKey(track.id + '_' + index.toString()),
+                  cursor: SystemMouseCursors.click,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    // Leading: track number, or equalizer icon if currently playing.
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: isPlaying
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Center(
+                        child: isPlaying && state.isPlaying
+                            ? const Icon(Icons.equalizer, color: Colors.white, size: 20)
+                            : isPlaying
+                                ? Icon(
+                                    Icons.play_arrow,
+                                    color: Colors.white,
+                                    size: 20,
+                                  )
+                                : Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
                                   ),
-                                ),
+                      ),
                     ),
-                  ),
-                  title: Text(
-                    track.title,
-                    style: TextStyle(
-                      fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
-                      color: isPlaying ? Theme.of(context).colorScheme.primary : null,
-                      fontSize: 14,
+                    title: Text(
+                      track.title,
+                      style: TextStyle(
+                        fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                        color: isPlaying ? Theme.of(context).colorScheme.primary : null,
+                        fontSize: 14,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    subtitle: Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    // Trailing: 3-dot menu (remove) + drag handle for reordering.
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PopupMenuButton<String>(
+                          icon: Icon(
+                            Icons.more_vert,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                          ),
+                          padding: EdgeInsets.zero,
+                          onSelected: (value) {
+                            if (value == 'remove') {
+                              ref.read(audioPlayerProvider.notifier).removeFromQueue(index);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Text('Remove from queue'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 4),
+                        ReorderableDragStartListener(
+                          index: index,
+                          child: Icon(
+                            Icons.reorder,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Tapping a track jumps to it in the queue.
+                    onTap: () {
+                      ref.read(audioPlayerProvider.notifier).playTrack(
+                            track,
+                            fromQueue: state.queue,
+                            startIndex: index,
+                          );
+                    },
                   ),
-                  subtitle: Text(
-                    track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  onTap: () {
-                    ref.read(audioPlayerProvider.notifier).playTrack(
-                          track,
-                          fromQueue: state.queue,
-                          startIndex: index,
-                        );
-                  },
-                ),
-              );
-            }),
+                );
+              },
+            ),
           ],
         ],
       ),
     );
   }
 
+  /// Formats a Duration into "MM:SS" string.
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final minutes = twoDigits(duration.inMinutes);
@@ -252,6 +314,8 @@ class PlayerPage extends ConsumerWidget {
   }
 }
 
+/// A seek bar that supports drag-to-seek. Pauses position updates while
+/// the user is dragging to avoid jitter.
 class _InteractiveSeekBar extends StatefulWidget {
   final Duration position;
   final Duration duration;
@@ -316,6 +380,7 @@ class _InteractiveSeekBarState extends State<_InteractiveSeekBar> {
   }
 }
 
+/// Row of playback control buttons: previous, play/pause, and next.
 class _PlaybackControls extends StatelessWidget {
   final bool isPlaying;
   final bool hasNext;
@@ -361,6 +426,8 @@ class _PlaybackControls extends StatelessWidget {
   }
 }
 
+/// A single playback control button with a tooltip and pointer cursor.
+/// Disabled buttons are dimmed and non-interactive.
 class _ControlButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;

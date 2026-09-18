@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
 
+/// Standalone search page that accepts a URL or track name and plays it.
+/// This is a legacy page — the main search is now integrated into the
+/// HomePage AppBar. This page is kept for direct URL playback.
 class SearchPage extends ConsumerWidget {
   const SearchPage({super.key});
 
@@ -24,6 +27,7 @@ class SearchPage extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Text field for entering a URL or track name.
             TextField(
               controller: textController,
               decoration: InputDecoration(
@@ -73,6 +77,8 @@ class SearchPage extends ConsumerWidget {
     );
   }
 
+  /// Attempts to play the given URL directly using the audio player.
+  /// Shows a snackbar on success or error, then pops back to the previous screen.
   static void _playUrl(
     BuildContext context,
     String url,

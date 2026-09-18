@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
 
+/// Hardcoded list of recently played tracks.
+/// In a real app, this would come from persistent storage or an API.
 final recentlyPlayedProvider = Provider<List<Track>>((ref) {
   return const [
     Track(
@@ -24,6 +26,7 @@ final recentlyPlayedProvider = Provider<List<Track>>((ref) {
   ];
 });
 
+/// Hardcoded list of recommended tracks for the dashboard.
 final recommendationsProvider = Provider<List<Track>>((ref) {
   return const [
     Track(
@@ -53,6 +56,7 @@ final recommendationsProvider = Provider<List<Track>>((ref) {
   ];
 });
 
+/// Hardcoded list of user playlists, each containing multiple tracks.
 final playlistsProvider = Provider<List<Playlist>>((ref) {
   return [
     Playlist(
@@ -106,12 +110,18 @@ final playlistsProvider = Provider<List<Playlist>>((ref) {
   ];
 });
 
+/// Mutable state provider for the current search query text.
+/// Updated by the search TextField in the HomePage AppBar.
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
+/// Derived provider that filters all tracks across recently played,
+/// recommendations, and playlists based on the current search query.
+/// Matches against both track title and artist name (case-insensitive).
 final searchResultsProvider = Provider<List<Track>>((ref) {
   final query = ref.watch(searchQueryProvider).toLowerCase();
   if (query.isEmpty) return [];
 
+  // Combine all tracks from every section into a single searchable list.
   final allTracks = [
     ...ref.watch(recentlyPlayedProvider),
     ...ref.watch(recommendationsProvider),
