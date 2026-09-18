@@ -72,18 +72,30 @@ class MusicPlayerApp extends ConsumerWidget {
   }
 }
 
-class MainScreen extends StatefulWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
+  bool _isDraggingMini = false;
+  double _dragMiniValue = 0;
 
   @override
   Widget build(BuildContext context) {
+    final state = ref.watch(audioPlayerProvider);
+
+    final miniPosition = state.totalDuration != null &&
+            state.totalDuration!.inMilliseconds > 0 &&
+            state.currentPosition != null
+        ? (_isDraggingMini
+            ? _dragMiniValue
+            : (state.currentPosition!.inMilliseconds / state.totalDuration!.inMilliseconds).clamp(0.0, 1.0))
+        : 0.0;
+
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
@@ -93,17 +105,124 @@ class _MainScreenState extends State<MainScreen> {
           SettingsPage(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (state.currentTitle.isNotEmpty)
+            Container(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                      activeTrackColor: Theme.of(context).colorScheme.primary,
+                      inactiveTrackColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    ),
+                    child: Slider(
+                      value: miniPosition,
+                      onChangeStart: (v) {
+                        setState(() {
+                          _isDraggingMini = true;
+                          _dragMiniValue = v;
+                        });
+                      },
+                      onChanged: (v) {
+                        setState(() {
+                          _dragMiniValue = v.clamp(0.0, 1.0);
+                        });
+                      },
+                      onChangeEnd: (v) {
+                        setState(() {
+                          _isDraggingMini = false;
+                        });
+                        final clamped = v.clamp(0.0, 1.0);
+                        final pos = Duration(
+                          milliseconds: (clamped * state.totalDuration!.inMilliseconds).round(),
+                        );
+                        ref.read(audioPlayerProvider.notifier).seek(pos);
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.pushNamed(context, '/player'),
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.music_note,
+                              size: 22,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => Navigator.pushNamed(context, '/player'),
+                            behavior: HitTestBehavior.opaque,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  state.currentTitle,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  state.currentArtist,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            state.isPlaying ? Icons.pause : Icons.play_arrow,
+                            size: 28,
+                          ),
+                          onPressed: () {
+                            ref.read(audioPlayerProvider.notifier).playOrPause();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+              BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
+              BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+            ],
+          ),
         ],
       ),
     );
@@ -144,13 +263,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     await controller.setUrl(track.audioUrl, title: track.title, artist: track.artist);
     await controller.play();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Now playing: ${track.title} - ${track.artist}'),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      Navigator.pushNamed(context, '/player');
     }
   }
 

@@ -203,15 +203,16 @@ class _InteractiveSeekBarState extends State<_InteractiveSeekBar> {
         },
         onChanged: (v) {
           setState(() {
-            _dragValue = v;
+            _dragValue = v.clamp(0.0, 1.0);
           });
         },
         onChangeEnd: (v) {
           setState(() {
             _isDragging = false;
           });
+          final clamped = v.clamp(0.0, 1.0);
           final position = Duration(
-            milliseconds: (v * widget.duration.inMilliseconds).round(),
+            milliseconds: (clamped * widget.duration.inMilliseconds).round(),
           );
           widget.onSeek(position);
         },
