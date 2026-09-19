@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
 import 'features/player/mini_player.dart';
+import 'features/player/download_bar.dart';
 import 'features/playlist/playlist_page.dart';
 import 'features/playlist/playlist_detail_page.dart';
 import 'providers/music_provider.dart';
@@ -118,6 +119,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const DownloadBar(),
           const MiniPlayer(),
           // Bottom navigation bar for switching between Home, Library, and Settings.
           BottomNavigationBar(

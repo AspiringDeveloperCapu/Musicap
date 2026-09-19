@@ -5,6 +5,7 @@ import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/features/player/mini_player.dart';
+import 'package:music_player/features/player/download_bar.dart';
 
 /// Detail view for a single playlist. Shows the playlist's tracks with options
 /// to play all, rename, or remove individual tracks.
@@ -44,7 +45,13 @@ class PlaylistDetailPage extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: const MiniPlayer(),
+      bottomNavigationBar: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DownloadBar(),
+          MiniPlayer(),
+        ],
+      ),
       body: playlist.tracks.isEmpty
           ? Center(
               child: Column(

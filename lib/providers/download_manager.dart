@@ -12,19 +12,27 @@ enum DownloadStatus { notDownloaded, downloading, downloaded }
 class DownloadState {
   final DownloadStatus status;
   final double progress; // 0.0 to 1.0
+  final String title;
+  final String artist;
 
   const DownloadState({
     this.status = DownloadStatus.notDownloaded,
     this.progress = 0.0,
+    this.title = '',
+    this.artist = '',
   });
 
   DownloadState copyWith({
     DownloadStatus? status,
     double? progress,
+    String? title,
+    String? artist,
   }) {
     return DownloadState(
       status: status ?? this.status,
       progress: progress ?? this.progress,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
     );
   }
 }
@@ -74,7 +82,12 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
 
     state = {
       ...state,
-      track.id: const DownloadState(status: DownloadStatus.downloading, progress: 0.0),
+      track.id: DownloadState(
+        status: DownloadStatus.downloading,
+        progress: 0.0,
+        title: track.title,
+        artist: track.artist,
+      ),
     };
 
     try {
@@ -89,6 +102,8 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
               track.id: DownloadState(
                 status: DownloadStatus.downloading,
                 progress: received / total,
+                title: track.title,
+                artist: track.artist,
               ),
             };
           }
@@ -96,13 +111,23 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
       );
       state = {
         ...state,
-        track.id: const DownloadState(status: DownloadStatus.downloaded, progress: 1.0),
+        track.id: DownloadState(
+          status: DownloadStatus.downloaded,
+          progress: 1.0,
+          title: track.title,
+          artist: track.artist,
+        ),
       };
     } catch (e) {
       // On error, reset to not downloaded.
       state = {
         ...state,
-        track.id: const DownloadState(status: DownloadStatus.notDownloaded, progress: 0.0),
+        track.id: DownloadState(
+          status: DownloadStatus.notDownloaded,
+          progress: 0.0,
+          title: track.title,
+          artist: track.artist,
+        ),
       };
     }
   }
