@@ -8,6 +8,7 @@ import 'features/player/mini_player.dart';
 import 'features/player/download_bar.dart';
 import 'features/playlist/playlist_page.dart';
 import 'features/playlist/playlist_detail_page.dart';
+import 'features/downloads/downloads_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
 import 'providers/download_manager.dart';
@@ -113,6 +114,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         children: const [
           HomePage(),
           PlaylistPage(),
+          DownloadsPage(),
           SettingsPage(),
         ],
       ),
@@ -131,6 +133,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
               BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
+              BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
               BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
             ],
           ),

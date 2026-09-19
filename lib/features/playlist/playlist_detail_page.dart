@@ -69,24 +69,54 @@ class PlaylistDetailPage extends ConsumerWidget {
             )
           : Column(
               children: [
-                // Play All button
+                // Play All and Download All buttons.
                 Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        if (playlist.tracks.isNotEmpty) {
-                          ref.read(audioPlayerProvider.notifier).playTrack(
-                            playlist.tracks.first,
-                            fromQueue: playlist.tracks,
-                            startIndex: 0,
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text('Play All (${playlist.tracks.length} tracks)'),
-                    ),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (playlist.tracks.isNotEmpty) {
+                              ref.read(audioPlayerProvider.notifier).playTrack(
+                                playlist.tracks.first,
+                                fromQueue: playlist.tracks,
+                                startIndex: 0,
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.play_arrow),
+                          label: Text('Play All (${playlist.tracks.length})'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                          foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                        ),
+                        onPressed: () {
+                          final notDownloaded = playlist.tracks.where((t) {
+                            final dl = ref.read(downloadManagerProvider)[t.id];
+                            return dl?.status != DownloadStatus.downloaded;
+                          }).toList();
+                          if (notDownloaded.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('All tracks already downloaded')),
+                            );
+                          } else {
+                            ref.read(downloadManagerProvider.notifier).simulateDownloadAll(notDownloaded);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Downloading ${notDownloaded.length} track${notDownloaded.length > 1 ? 's' : ''}'),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.download),
+                        label: const Text('Download All'),
+                      ),
+                    ],
                   ),
                 ),
                 // Track list
