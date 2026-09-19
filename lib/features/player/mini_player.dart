@@ -73,10 +73,17 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               },
             ),
           ),
-          // Track info row with controls.
+          // Track info row — tapping navigates to full player.
           Padding(
             padding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
-            child: Row(
+            child: GestureDetector(
+              onTap: () {
+                if (ModalRoute.of(context)?.settings.name != '/player') {
+                  Navigator.pushNamed(context, '/player');
+                }
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Row(
               children: [
                 // Album art placeholder.
                 Container(
@@ -180,6 +187,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                   ),
                 ),
               ],
+              ),
             ),
           ),
         ],
