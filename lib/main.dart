@@ -118,7 +118,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const MiniPlayer(),
-          // Bottom navigation bar for switching between Home, Queue, and Settings.
+          // Bottom navigation bar for switching between Home, Library, and Settings.
           BottomNavigationBar(
             currentIndex: _currentIndex,
             onTap: (index) {
@@ -128,7 +128,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             },
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-              BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
+              BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
               BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
             ],
           ),
