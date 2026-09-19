@@ -102,7 +102,7 @@ class _MainScreenState extends State<MainScreen> {
         },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Queue'),
+          BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
