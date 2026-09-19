@@ -4,6 +4,7 @@ import 'package:audio_service/audio_service.dart';
 
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
+import 'features/player/mini_player.dart';
 import 'features/playlist/playlist_page.dart';
 import 'features/playlist/playlist_detail_page.dart';
 import 'providers/music_provider.dart';
@@ -85,8 +86,6 @@ class MainScreen extends ConsumerStatefulWidget {
 
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
-  bool _isDraggingMini = false;
-  double _dragMiniValue = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -106,16 +105,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       });
     }
 
-    // Calculate mini player slider position (0.0 to 1.0).
-    // During drag, use the drag value; otherwise compute from position/duration.
-    final miniPosition = state.totalDuration != null &&
-            state.totalDuration!.inMilliseconds > 0 &&
-            state.currentPosition != null
-        ? (_isDraggingMini
-            ? _dragMiniValue
-            : (state.currentPosition!.inMilliseconds / state.totalDuration!.inMilliseconds).clamp(0.0, 1.0))
-        : 0.0;
-
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
@@ -128,154 +117,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Mini player: only visible when a track is loaded.
-          if (state.currentTitle.isNotEmpty)
-            Container(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Mini player progress slider.
-                  SliderTheme(
-                    data: SliderThemeData(
-                      trackHeight: 3,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                      activeTrackColor: Theme.of(context).colorScheme.primary,
-                      inactiveTrackColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    ),
-                    child: Slider(
-                      value: miniPosition,
-                      onChangeStart: (v) {
-                        setState(() {
-                          _isDraggingMini = true;
-                          _dragMiniValue = v;
-                        });
-                      },
-                      onChanged: (v) {
-                        setState(() {
-                          _dragMiniValue = v.clamp(0.0, 1.0);
-                        });
-                      },
-                      onChangeEnd: (v) {
-                        setState(() {
-                          _isDraggingMini = false;
-                        });
-                        final clamped = v.clamp(0.0, 1.0);
-                        final pos = Duration(
-                          milliseconds: (clamped * state.totalDuration!.inMilliseconds).round(),
-                        );
-                        ref.read(audioPlayerProvider.notifier).seek(pos);
-                      },
-                    ),
-                  ),
-                  // Mini player track info row — tapping navigates to full player.
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
-                    child: GestureDetector(
-                      onTap: () {
-                        // Prevent pushing /player if already on it.
-                        if (ModalRoute.of(context)?.settings.name != '/player') {
-                          Navigator.pushNamed(context, '/player');
-                        }
-                      },
-                      behavior: HitTestBehavior.opaque,
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.music_note,
-                              size: 22,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                           const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  state.currentTitle,
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  state.currentArtist,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          // Close button to stop playback and hide mini player.
-                          MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: IconButton(
-                              icon: Icon(
-                                Icons.close,
-                                size: 20,
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                              ),
-                              onPressed: () => ref.read(audioPlayerProvider.notifier).stopAndClear(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  // Mini player playback controls (prev / play-pause / next).
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        MouseRegion(
-                          cursor: state.hasPrevious ? SystemMouseCursors.click : SystemMouseCursors.basic,
-                          child: IconButton(
-                            icon: const Icon(Icons.skip_previous, size: 24),
-                            onPressed: state.hasPrevious
-                                ? () => ref.read(audioPlayerProvider.notifier).seekToPrevious()
-                                : null,
-                          ),
-                        ),
-                        MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: IconButton(
-                            icon: Icon(
-                              state.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                              size: 40,
-                            ),
-                            color: Theme.of(context).colorScheme.primary,
-                            onPressed: () => ref.read(audioPlayerProvider.notifier).playOrPause(),
-                          ),
-                        ),
-                        MouseRegion(
-                          cursor: state.hasNext ? SystemMouseCursors.click : SystemMouseCursors.basic,
-                          child: IconButton(
-                            icon: const Icon(Icons.skip_next, size: 24),
-                            onPressed: state.hasNext
-                                ? () => ref.read(audioPlayerProvider.notifier).seekToNext()
-                                : null,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          const MiniPlayer(),
           // Bottom navigation bar for switching between Home, Queue, and Settings.
           BottomNavigationBar(
             currentIndex: _currentIndex,

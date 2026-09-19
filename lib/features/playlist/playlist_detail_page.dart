@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
+import 'package:music_player/features/player/mini_player.dart';
 
 /// Detail view for a single playlist. Shows the playlist's tracks with options
 /// to play all, rename, or remove individual tracks.
@@ -42,6 +43,7 @@ class PlaylistDetailPage extends ConsumerWidget {
           ),
         ],
       ),
+      bottomNavigationBar: const MiniPlayer(),
       body: playlist.tracks.isEmpty
           ? Center(
               child: Column(
