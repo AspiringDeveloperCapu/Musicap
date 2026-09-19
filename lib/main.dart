@@ -258,11 +258,8 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
         actions: [
-          // Download panel icon.
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: () => DownloadPanel.show(context),
-          ),
+          // Download panel icon with active download badge.
+          _DownloadIcon(),
         ],
       ),
       // Show search results grid if searching, otherwise show the dashboard.
@@ -590,6 +587,28 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Download icon with a badge showing the number of active downloads.
+class _DownloadIcon extends ConsumerWidget {
+  const _DownloadIcon();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final downloads = ref.watch(downloadManagerProvider);
+    final activeCount = downloads.values
+        .where((d) => d.status == DownloadStatus.downloading)
+        .length;
+
+    return IconButton(
+      onPressed: () => DownloadPanel.show(context),
+      icon: Badge(
+        label: activeCount > 0 ? Text('$activeCount') : null,
+        isLabelVisible: activeCount > 0,
+        child: const Icon(Icons.download),
       ),
     );
   }
