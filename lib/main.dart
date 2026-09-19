@@ -237,6 +237,35 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  void _confirmDeleteDownload(BuildContext context, WidgetRef ref, Track track) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete download?'),
+        content: Text('Delete "${track.title}" from downloads? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              ref.read(downloadManagerProvider.notifier).deleteDownload(track);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Deleted "${track.title}"'),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final searchResults = ref.watch(searchResultsProvider);
@@ -448,6 +477,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                             duration: const Duration(seconds: 1),
                           ),
                         );
+                      } else if (value == 'deleteDownload') {
+                        _confirmDeleteDownload(context, ref, track);
                       }
                     },
                     itemBuilder: (context) => [
@@ -459,10 +490,16 @@ class _HomePageState extends ConsumerState<HomePage> {
                         value: 'addToPlaylist',
                         child: Text('Add to playlist'),
                       ),
-                      const PopupMenuItem(
-                        value: 'download',
-                        child: Text('Download'),
-                      ),
+                      if (status == DownloadStatus.downloaded)
+                        const PopupMenuItem(
+                          value: 'deleteDownload',
+                          child: Text('Delete download'),
+                        )
+                      else
+                        const PopupMenuItem(
+                          value: 'download',
+                          child: Text('Download'),
+                        ),
                     ],
                   ),
                 ),
