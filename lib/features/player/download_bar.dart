@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/download_manager.dart';
+import 'package:music_player/features/player/player_controller.dart';
 
 /// Shows a download panel as a modal bottom sheet.
 class DownloadPanel {
@@ -87,6 +89,7 @@ class _DownloadPanelContent extends ConsumerWidget {
                                 trackId: e.key,
                                 title: e.value.title,
                                 artist: e.value.artist,
+                                audioUrl: e.value.audioUrl,
                                 progress: e.value.progress,
                                 status: DownloadStatus.downloading,
                               )),
@@ -98,6 +101,7 @@ class _DownloadPanelContent extends ConsumerWidget {
                                 trackId: e.key,
                                 title: e.value.title,
                                 artist: e.value.artist,
+                                audioUrl: e.value.audioUrl,
                                 progress: 1.0,
                                 status: DownloadStatus.downloaded,
                               )),
@@ -109,6 +113,7 @@ class _DownloadPanelContent extends ConsumerWidget {
                                 trackId: e.key,
                                 title: e.value.title,
                                 artist: e.value.artist,
+                                audioUrl: e.value.audioUrl,
                                 progress: e.value.progress,
                                 status: DownloadStatus.canceled,
                               )),
@@ -176,6 +181,7 @@ class _DownloadTile extends ConsumerWidget {
   final String trackId;
   final String title;
   final String artist;
+  final String audioUrl;
   final double progress;
   final DownloadStatus status;
 
@@ -183,6 +189,7 @@ class _DownloadTile extends ConsumerWidget {
     required this.trackId,
     required this.title,
     required this.artist,
+    required this.audioUrl,
     required this.progress,
     required this.status,
   });
@@ -324,6 +331,50 @@ class _DownloadTile extends ConsumerWidget {
         },
       );
     }
-    return null;
+
+    // Completed or canceled — show 3-dot menu.
+    return PopupMenuButton<String>(
+      icon: Icon(
+        Icons.more_vert,
+        size: 18,
+        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+      ),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      onSelected: (value) {
+        if (value == 'play') {
+          final track = Track(
+            id: trackId,
+            title: title,
+            artist: artist,
+            audioUrl: audioUrl,
+          );
+          ref.read(audioPlayerProvider.notifier).playTrack(track);
+        } else if (value == 'remove') {
+          ref.read(downloadManagerProvider.notifier).removeFromList(trackId);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Removed "$title"'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        } else if (value == 'delete') {
+          ref.read(downloadManagerProvider.notifier).deleteDownload(
+            Track(id: trackId, title: title, artist: artist, audioUrl: audioUrl),
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Deleted "$title"'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: 'play', child: Text('Play')),
+        const PopupMenuItem(value: 'remove', child: Text('Remove from list')),
+        const PopupMenuItem(value: 'delete', child: Text('Delete file')),
+      ],
+    );
   }
 }

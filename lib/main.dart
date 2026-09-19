@@ -136,6 +136,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
               BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
             ],
+            selectedItemColor: Colors.blueAccent,
+            unselectedItemColor: Colors.grey,
           ),
         ],
       ),
