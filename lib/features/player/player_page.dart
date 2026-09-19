@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
+import 'package:music_player/providers/download_manager.dart';
+import 'package:music_player/models/track.dart';
 
 /// Full-screen "Now Playing" page. Shows album art, track info, a seek bar,
 /// playback controls, shuffle/loop toggles, and a reorderable queue list.
@@ -124,7 +126,7 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
-          // Shuffle and loop mode toggles.
+          // Shuffle, loop, and download toggles.
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -139,6 +141,9 @@ class PlayerPage extends ConsumerWidget {
                   ref.read(audioPlayerProvider.notifier).setShuffleMode(!state.isShuffleEnabled);
                 },
               ),
+              const SizedBox(width: 24),
+              // Download button for current track.
+              _buildDownloadButton(context, ref, state),
               const SizedBox(width: 24),
               IconButton(
                 icon: Icon(
@@ -311,6 +316,58 @@ class PlayerPage extends ConsumerWidget {
     final minutes = twoDigits(duration.inMinutes);
     final seconds = twoDigits(duration.inSeconds.remainder(60));
     return '$minutes:$seconds';
+  }
+
+  /// Builds the download button for the current track.
+  Widget _buildDownloadButton(BuildContext context, WidgetRef ref, AudioPlayerState state) {
+    if (state.currentUrl == null) return const SizedBox(width: 48, height: 48);
+
+    final track = Track(
+      id: state.currentIndex.toString(),
+      title: state.currentTitle,
+      artist: state.currentArtist,
+      audioUrl: state.currentUrl!,
+    );
+
+    final dlState = ref.watch(downloadManagerProvider)[track.id];
+
+    if (dlState?.status == DownloadStatus.downloading) {
+      return SizedBox(
+        width: 48,
+        height: 48,
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              value: dlState!.progress,
+              strokeWidth: 2.5,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final isDownloaded = dlState?.status == DownloadStatus.downloaded;
+
+    return IconButton(
+      icon: Icon(
+        isDownloaded ? Icons.download_done : Icons.download,
+        color: isDownloaded
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+      ),
+      onPressed: () {
+        ref.read(downloadManagerProvider.notifier).downloadTrack(track);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Downloading "${track.title}"'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      },
+    );
   }
 }
 

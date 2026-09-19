@@ -9,6 +9,7 @@ import 'features/playlist/playlist_page.dart';
 import 'features/playlist/playlist_detail_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
+import 'providers/download_manager.dart';
 import 'models/track.dart';
 import 'audio_handler.dart';
 
@@ -398,6 +399,14 @@ class _HomePageState extends ConsumerState<HomePage> {
                         );
                       } else if (value == 'addToPlaylist') {
                         _showAddToPlaylistDialog(context, ref, track);
+                      } else if (value == 'download') {
+                        ref.read(downloadManagerProvider.notifier).downloadTrack(track);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Downloading "${track.title}"'),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
                       }
                     },
                     itemBuilder: (context) => [
@@ -408,6 +417,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                       const PopupMenuItem(
                         value: 'addToPlaylist',
                         child: Text('Add to playlist'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'download',
+                        child: Text('Download'),
                       ),
                     ],
                   ),

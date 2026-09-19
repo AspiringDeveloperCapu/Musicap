@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/playlist_manager.dart';
+import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/features/player/mini_player.dart';
 
@@ -155,9 +156,21 @@ class PlaylistDetailPage extends ConsumerWidget {
                 duration: const Duration(seconds: 1),
               ),
             );
+          } else if (value == 'download') {
+            ref.read(downloadManagerProvider.notifier).downloadTrack(track);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Downloading "${track.title}"'),
+                duration: const Duration(seconds: 1),
+              ),
+            );
           }
         },
         itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'download',
+            child: Text('Download'),
+          ),
           const PopupMenuItem(
             value: 'remove',
             child: Text('Remove from playlist'),
