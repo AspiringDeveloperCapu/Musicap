@@ -34,7 +34,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
             onSelected: (value) => setState(() => _sortBy = value),
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'date', child: Text('Sort by date')),
-              const PopupMenuItem(value: 'name', child: Text('Sort by name')),
+              const PopupMenuItem(value: 'name', child: Text('Sort by music name')),
               const PopupMenuItem(value: 'artist', child: Text('Sort by artist')),
             ],
           ),
@@ -238,7 +238,6 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
             }
           },
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 'play', child: Text('Play')),
             const PopupMenuItem(
               value: 'addQueue',
               child: Text('Add to queue'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
@@ -62,7 +63,7 @@ class MusicPlayerApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Music Player',
+      title: 'Musicap',
       theme: ThemeData(
         primarySwatch: Colors.indigo,
         useMaterial3: true,
@@ -688,8 +689,16 @@ class _DownloadIcon extends ConsumerWidget {
 }
 
 /// Simple settings page with an About dialog.
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
+
+  @override
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends ConsumerState<SettingsPage> {
+  ThemeMode _themeMode = ThemeMode.system;
+  double _playbackSpeed = 1.0;
 
   @override
   Widget build(BuildContext context) {
@@ -699,33 +708,229 @@ class SettingsPage extends StatelessWidget {
       ),
       body: ListView(
         children: [
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Audio',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
+          // Appearance section.
+          _sectionHeader('Appearance'),
+          ListTile(
+            leading: Icon(
+              _themeMode == ThemeMode.dark
+                  ? Icons.dark_mode
+                  : _themeMode == ThemeMode.light
+                      ? Icons.light_mode
+                      : Icons.brightness_auto,
             ),
+            title: const Text('Theme'),
+            subtitle: Text(_themeModeLabel()),
+            onTap: () => _showThemeDialog(context),
           ),
+
+          const Divider(height: 1),
+
+          // Audio section.
+          _sectionHeader('Audio'),
+          ListTile(
+            leading: const Icon(Icons.speed),
+            title: const Text('Playback Speed'),
+            subtitle: Text('$_playbackSpeed x'),
+            onTap: () => _showPlaybackSpeedDialog(context),
+          ),
+
+          const Divider(height: 1),
+
+          // Downloads section.
+          _sectionHeader('Downloads'),
+          ListTile(
+            leading: const Icon(Icons.delete_sweep, color: Colors.red),
+            title: const Text('Clear All Downloads'),
+            subtitle: const Text('Remove all downloaded tracks'),
+            onTap: () => _confirmClearDownloads(context),
+          ),
+
+          const Divider(height: 1),
+
+          // About section.
+          _sectionHeader('About'),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About'),
-            subtitle: const Text('Music Player v1.0.0'),
+            title: const Text('About Musicap'),
+            subtitle: const Text('Version 1.0.0'),
             onTap: () {
               showAboutDialog(
                 context: context,
-                applicationName: 'Music Player',
+                applicationName: 'Musicap',
                 applicationVersion: '1.0.0',
                 children: [
                   const Text('A Flutter music player app.'),
                   const SizedBox(height: 8),
                   const Text('Made with AI assistance'),
+                  const SizedBox(height: 16),
+                  const Text('GitHub:'),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    onTap: () => launchUrl(
+                      Uri.parse('https://github.com/AspiringDeveloperCapu/Musicap'),
+                    ),
+                    child: Text(
+                      'https://github.com/AspiringDeveloperCapu/Musicap',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
                 ],
               );
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text('Author'),
+            subtitle: const Text('Aaron Jacob Capulong'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.code),
+            title: const Text('Licenses'),
+            subtitle: const Text('View open source licenses'),
+            onTap: () => showLicensePage(
+              context: context,
+              applicationName: 'Musicap',
+              applicationVersion: '1.0.0',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  String _themeModeLabel() {
+    switch (_themeMode) {
+      case ThemeMode.dark:
+        return 'Dark';
+      case ThemeMode.light:
+        return 'Light';
+      case ThemeMode.system:
+        return 'System default';
+    }
+  }
+
+  void _showThemeDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Theme'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioListTile<ThemeMode>(
+              title: const Text('System default'),
+              value: ThemeMode.system,
+              groupValue: _themeMode,
+              onChanged: (value) {
+                setState(() => _themeMode = value!);
+                Navigator.of(context).pop();
+              },
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('Light'),
+              value: ThemeMode.light,
+              groupValue: _themeMode,
+              onChanged: (value) {
+                setState(() => _themeMode = value!);
+                Navigator.of(context).pop();
+              },
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('Dark'),
+              value: ThemeMode.dark,
+              groupValue: _themeMode,
+              onChanged: (value) {
+                setState(() => _themeMode = value!);
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPlaybackSpeedDialog(BuildContext context) {
+    final speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Playback Speed'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: speeds.map((speed) {
+            return RadioListTile<double>(
+              title: Text('$speed x'),
+              value: speed,
+              groupValue: _playbackSpeed,
+              onChanged: (value) {
+                setState(() => _playbackSpeed = value!);
+                Navigator.of(context).pop();
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  void _confirmClearDownloads(BuildContext context) {
+    final downloads = ref.read(downloadManagerProvider);
+    final count = downloads.values
+        .where((d) => d.status == DownloadStatus.downloaded)
+        .length;
+    if (count == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No downloads to clear')),
+      );
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear all downloads?'),
+        content: Text('This will remove $count downloaded track${count > 1 ? 's' : ''}. This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              final manager = ref.read(downloadManagerProvider.notifier);
+              for (final entry in downloads.entries.toList()) {
+                manager.deleteDownload(
+                  Track(
+                    id: entry.key,
+                    title: entry.value.title,
+                    artist: entry.value.artist,
+                    audioUrl: entry.value.audioUrl,
+                  ),
+                );
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('All downloads cleared')),
+              );
+            },
+            child: const Text('Clear all', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -745,7 +950,7 @@ Future<void> main() async {
     builder: () => MusicAudioHandler(),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.example.music_player.channel.audio',
-      androidNotificationChannelName: 'Music Player',
+      androidNotificationChannelName: 'Musicap',
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: true,
     ),

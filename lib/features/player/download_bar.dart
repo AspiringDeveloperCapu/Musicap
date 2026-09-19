@@ -376,7 +376,6 @@ class _DownloadTile extends ConsumerWidget {
         }
       },
       itemBuilder: (context) => [
-        const PopupMenuItem(value: 'play', child: Text('Play')),
         const PopupMenuItem(value: 'addQueue', child: Text('Add to queue')),
         const PopupMenuItem(value: 'addToPlaylist', child: Text('Add to playlist')),
         const PopupMenuItem(value: 'remove', child: Text('Remove from list')),
