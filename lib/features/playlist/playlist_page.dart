@@ -46,13 +46,21 @@ class PlaylistPage extends ConsumerWidget {
           ...playlists.map((playlist) => _PlaylistTile(
                 playlist: playlist,
                 onTap: () {
-                  // Navigate to playlist detail page.
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => PlaylistDetailPage(playlistId: playlist.id),
                     ),
                   );
+                },
+                onPlay: () {
+                  if (playlist.tracks.isNotEmpty) {
+                    ref.read(audioPlayerProvider.notifier).playTrack(
+                      playlist.tracks.first,
+                      fromQueue: playlist.tracks,
+                      startIndex: 0,
+                    );
+                  }
                 },
               )),
           const Divider(indent: 16, endIndent: 16),
@@ -205,10 +213,12 @@ class PlaylistPage extends ConsumerWidget {
 class _PlaylistTile extends StatelessWidget {
   final Playlist playlist;
   final VoidCallback onTap;
+  final VoidCallback onPlay;
 
   const _PlaylistTile({
     required this.playlist,
     required this.onTap,
+    required this.onPlay,
   });
 
   @override
@@ -247,7 +257,7 @@ class _PlaylistTile extends StatelessWidget {
             Icons.play_circle_outline,
             color: Theme.of(context).colorScheme.primary,
           ),
-          onPressed: onTap,
+          onPressed: onPlay,
         ),
         onTap: onTap,
       ),
