@@ -353,8 +353,11 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   /// Builds a single track card with album art placeholder, title, artist,
-  /// and a 3-dot menu for "Add to queue".
+  /// a download status indicator, and a 3-dot menu for actions.
   Widget _buildTrackCard(Track track, {required List<Track> fromQueue}) {
+    final dlState = ref.watch(downloadManagerProvider)[track.id];
+    final status = dlState?.status;
+
     return HoverScale(
       onTap: () => _playTrack(track, fromQueue: fromQueue),
       child: Container(
@@ -381,6 +384,34 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                   ),
                 ),
+                // Download status indicator (bottom-left corner).
+                if (status != null && status != DownloadStatus.notDownloaded)
+                  Positioned(
+                    bottom: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface.withOpacity(0.85),
+                        shape: BoxShape.circle,
+                      ),
+                      child: status == DownloadStatus.downloading
+                          ? SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                value: dlState!.progress,
+                                strokeWidth: 2,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            )
+                          : Icon(
+                              Icons.download_done,
+                              size: 14,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                    ),
+                  ),
                 // 3-dot menu overlay for queue actions.
                 Positioned(
                   top: 4,
