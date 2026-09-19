@@ -207,6 +207,13 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _updateState();
   }
 
+  /// Stops playback and clears the queue, hiding the mini player.
+  Future<void> stopAndClear() async {
+    await _player.stop();
+    _audioSource = null;
+    state = AudioPlayerState();
+  }
+
   /// Toggles between play and pause.
   Future<void> playOrPause() async {
     if (_player.playing) {

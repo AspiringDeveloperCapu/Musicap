@@ -195,7 +195,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                               color: Theme.of(context).colorScheme.primary,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -217,6 +217,18 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ],
+                            ),
+                          ),
+                          // Close button to stop playback and hide mini player.
+                          MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: IconButton(
+                              icon: Icon(
+                                Icons.close,
+                                size: 20,
+                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                              ),
+                              onPressed: () => ref.read(audioPlayerProvider.notifier).stopAndClear(),
                             ),
                           ),
                         ],
