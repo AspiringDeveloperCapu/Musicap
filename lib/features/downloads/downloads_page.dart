@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/download_manager.dart';
+import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/features/player/download_bar.dart';
 
@@ -212,6 +213,18 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
           onSelected: (value) {
             if (value == 'play') {
               _playTrack(context, ref, dl, trackId);
+            } else if (value == 'addQueue') {
+              ref.read(audioPlayerProvider.notifier).addToQueue(
+                Track(id: trackId, title: dl.title, artist: dl.artist, audioUrl: dl.audioUrl),
+              );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Added "${dl.title}" to queue'),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            } else if (value == 'addToPlaylist') {
+              _showAddToPlaylistDialog(context, ref, dl, trackId);
             } else if (value == 'remove') {
               ref.read(downloadManagerProvider.notifier).removeFromList(trackId);
               ScaffoldMessenger.of(context).showSnackBar(
@@ -221,26 +234,21 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
                 ),
               );
             } else if (value == 'delete') {
-              ref.read(downloadManagerProvider.notifier).deleteDownload(
-                Track(
-                  id: trackId,
-                  title: dl.title,
-                  artist: dl.artist,
-                  audioUrl: dl.audioUrl,
-                ),
-              );
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Deleted "${dl.title}"'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
+              _confirmDelete(context, ref, dl, trackId);
             }
           },
           itemBuilder: (context) => [
             const PopupMenuItem(value: 'play', child: Text('Play')),
+            const PopupMenuItem(
+              value: 'addQueue',
+              child: Text('Add to queue'),
+            ),
+            const PopupMenuItem(
+              value: 'addToPlaylist',
+              child: Text('Add to playlist'),
+            ),
             const PopupMenuItem(value: 'remove', child: Text('Remove from list')),
-            const PopupMenuItem(value: 'delete', child: Text('Delete file')),
+            const PopupMenuItem(value: 'delete', child: Text('Delete download')),
           ],
         ),
         onTap: () => _playTrack(context, ref, dl, trackId),
@@ -283,5 +291,104 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
           fromQueue: tracks,
           startIndex: 0,
         );
+  }
+
+  void _showAddToPlaylistDialog(
+    BuildContext context,
+    WidgetRef ref,
+    DownloadState dl,
+    String trackId,
+  ) {
+    final playlists = ref.read(playlistManagerProvider);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Add "${dl.title}" to playlist'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: playlists.isEmpty
+              ? const Text('No playlists yet. Create one first.')
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: playlists.length,
+                  itemBuilder: (context, index) {
+                    final playlist = playlists[index];
+                    return ListTile(
+                      leading: Icon(
+                        Icons.queue_music,
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                      title: Text(playlist.name),
+                      subtitle: Text('${playlist.tracks.length} tracks'),
+                      onTap: () {
+                        final track = Track(
+                          id: trackId,
+                          title: dl.title,
+                          artist: dl.artist,
+                          audioUrl: dl.audioUrl,
+                        );
+                        final added = ref
+                            .read(playlistManagerProvider.notifier)
+                            .addTrackToPlaylist(playlist.id, track);
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              added
+                                  ? 'Added "${dl.title}" to "${playlist.name}"'
+                                  : '"${dl.title}" is already in "${playlist.name}"',
+                            ),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDelete(
+    BuildContext context,
+    WidgetRef ref,
+    DownloadState dl,
+    String trackId,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete download?'),
+        content: Text('Delete "${dl.title}" from downloads? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              ref.read(downloadManagerProvider.notifier).deleteDownload(
+                Track(id: trackId, title: dl.title, artist: dl.artist, audioUrl: dl.audioUrl),
+              );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Deleted "${dl.title}"'),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 }
