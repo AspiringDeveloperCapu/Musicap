@@ -119,7 +119,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const DownloadBar(),
           const MiniPlayer(),
           // Bottom navigation bar for switching between Home, Library, and Settings.
           BottomNavigationBar(
@@ -258,6 +257,13 @@ class _HomePageState extends ConsumerState<HomePage> {
                 : null,
           ),
         ),
+        actions: [
+          // Download panel icon.
+          IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: () => DownloadPanel.show(context),
+          ),
+        ],
       ),
       // Show search results grid if searching, otherwise show the dashboard.
       body: query.isNotEmpty

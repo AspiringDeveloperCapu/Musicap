@@ -45,13 +45,7 @@ class PlaylistDetailPage extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          DownloadBar(),
-          MiniPlayer(),
-        ],
-      ),
+      bottomNavigationBar: const MiniPlayer(),
       body: playlist.tracks.isEmpty
           ? Center(
               child: Column(
