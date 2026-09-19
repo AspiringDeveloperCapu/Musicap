@@ -436,7 +436,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       } else if (value == 'addToPlaylist') {
                         _showAddToPlaylistDialog(context, ref, track);
                       } else if (value == 'download') {
-                        ref.read(downloadManagerProvider.notifier).downloadTrack(track);
+                        ref.read(downloadManagerProvider.notifier).simulateDownload(track);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Downloading "${track.title}"'),

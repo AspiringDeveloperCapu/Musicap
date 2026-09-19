@@ -42,6 +42,47 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
   final Dio _dio = Dio();
   DownloadManager() : super({});
 
+  /// Simulates a download with progress updates for testing.
+  Future<void> simulateDownload(Track track) async {
+    if (state[track.id]?.status == DownloadStatus.downloaded) return;
+    if (state[track.id]?.status == DownloadStatus.downloading) return;
+
+    state = {
+      ...state,
+      track.id: DownloadState(
+        status: DownloadStatus.downloading,
+        progress: 0.0,
+        title: track.title,
+        artist: track.artist,
+      ),
+    };
+
+    for (double p = 0.0; p <= 1.0; p += 0.05) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      // Check if canceled during simulation.
+      if (state[track.id]?.status == DownloadStatus.canceled) return;
+      state = {
+        ...state,
+        track.id: DownloadState(
+          status: DownloadStatus.downloading,
+          progress: p.clamp(0.0, 1.0),
+          title: track.title,
+          artist: track.artist,
+        ),
+      };
+    }
+
+    state = {
+      ...state,
+      track.id: DownloadState(
+        status: DownloadStatus.downloaded,
+        progress: 1.0,
+        title: track.title,
+        artist: track.artist,
+      ),
+    };
+  }
+
   Future<void> downloadTrack(Track track) async {
     if (state[track.id]?.status == DownloadStatus.downloaded) return;
     if (state[track.id]?.status == DownloadStatus.downloading) return;

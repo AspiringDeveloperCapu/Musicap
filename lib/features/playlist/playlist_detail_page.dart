@@ -158,7 +158,7 @@ class PlaylistDetailPage extends ConsumerWidget {
               ),
             );
           } else if (value == 'download') {
-            ref.read(downloadManagerProvider.notifier).downloadTrack(track);
+            ref.read(downloadManagerProvider.notifier).simulateDownload(track);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Downloading "${track.title}"'),
