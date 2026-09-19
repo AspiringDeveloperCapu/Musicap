@@ -5,7 +5,7 @@ import 'package:music_player/models/track.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Tracks the download status of individual tracks.
-enum DownloadStatus { notDownloaded, downloading, downloaded }
+enum DownloadStatus { notDownloaded, downloading, downloaded, canceled }
 
 /// Holds the download state for a single track.
 class DownloadState {
@@ -146,6 +146,22 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
         artist: track.artist,
       ),
     };
+  }
+
+  /// Cancels an in-progress download.
+  void cancelDownload(String trackId) {
+    final current = state[trackId];
+    if (current != null && current.status == DownloadStatus.downloading) {
+      state = {
+        ...state,
+        trackId: DownloadState(
+          status: DownloadStatus.canceled,
+          progress: current.progress,
+          title: current.title,
+          artist: current.artist,
+        ),
+      };
+    }
   }
 
   DownloadState getState(String trackId) {
