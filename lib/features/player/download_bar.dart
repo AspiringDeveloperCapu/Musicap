@@ -26,8 +26,6 @@ class _DownloadBarState extends ConsumerState<DownloadBar> {
             e.value.status == DownloadStatus.downloaded)
         .toList();
 
-    if (activeOrCompleted.isEmpty) return const SizedBox.shrink();
-
     // Find the most recent active download for the compact bar.
     final activeDownload = activeOrCompleted
         .where((e) => e.value.status == DownloadStatus.downloading)
@@ -90,13 +88,25 @@ class _DownloadBarState extends ConsumerState<DownloadBar> {
                                 ),
                               ],
                             )
-                          : Text(
-                              '${activeOrCompleted.length} download${activeOrCompleted.length > 1 ? 's' : ''} complete',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                          : activeOrCompleted.isNotEmpty
+                              ? Text(
+                                  '${activeOrCompleted.length} download${activeOrCompleted.length > 1 ? 's' : ''} complete',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                )
+                              : Text(
+                                  'Downloads',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withOpacity(0.5),
+                                  ),
+                                ),
                     ),
                     const SizedBox(width: 8),
                     // Expand/collapse arrow.
