@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:music_player/features/player/player_controller.dart';
 
 /// Reusable mini player widget that shows current track info, progress,
@@ -85,7 +86,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               behavior: HitTestBehavior.opaque,
               child: Row(
               children: [
-                // Album art placeholder.
+                // Album art.
                 Container(
                   width: 44,
                   height: 44,
@@ -93,11 +94,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                     color: Theme.of(context).colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(
-                    Icons.music_note,
-                    size: 22,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _buildMiniAlbumArt(context),
                 ),
                 const SizedBox(width: 10),
                 // Track title and artist.
@@ -192,6 +190,41 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMiniAlbumArt(BuildContext context) {
+    // We need to watch the audioPlayerProvider to get the current track's imageUrl.
+    // Since MiniPlayer is a ConsumerWidget, we can access ref here.
+    return Consumer(
+      builder: (context, ref, _) {
+        final state = ref.watch(audioPlayerProvider);
+        String? imageUrl;
+        if (state.queue.isNotEmpty && state.currentIndex < state.queue.length) {
+          imageUrl = state.queue[state.currentIndex].imageUrl;
+        }
+        if (imageUrl != null) {
+          return CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => Icon(
+              Icons.music_note,
+              size: 22,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            errorWidget: (context, url, error) => Icon(
+              Icons.music_note,
+              size: 22,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          );
+        }
+        return Icon(
+          Icons.music_note,
+          size: 22,
+          color: Theme.of(context).colorScheme.primary,
+        );
+      },
     );
   }
 }

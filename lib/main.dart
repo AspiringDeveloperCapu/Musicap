@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
@@ -184,6 +185,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     final controller = ref.read(audioPlayerProvider.notifier);
     final index = fromQueue.indexOf(track);
     await controller.playTrack(track, fromQueue: fromQueue, startIndex: index >= 0 ? index : 0);
+    ref.read(recentlyPlayedProvider.notifier).addTrack(track);
   }
 
   /// Shows a dialog listing all playlists, allowing the user to add a track.
@@ -269,7 +271,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final searchResults = ref.watch(searchResultsProvider);
+    final searchResultsAsync = ref.watch(searchResultsProvider);
     final query = ref.watch(searchQueryProvider);
 
     return Scaffold(
@@ -299,34 +301,48 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
       // Show search results grid if searching, otherwise show the dashboard.
       body: query.isNotEmpty
-          ? _buildSearchResults(searchResults)
+          ? _buildSearchResults(searchResultsAsync)
           : _buildDashboard(),
     );
   }
 
   /// Builds a 2-column grid of track cards from the search results.
-  Widget _buildSearchResults(List<Track> results) {
-    if (results.isEmpty) {
-      return const Center(
-        child: Text(
-          'No results found',
-          style: TextStyle(fontSize: 16, color: Colors.grey),
+  Widget _buildSearchResults(AsyncValue<List<Track>> resultsAsync) {
+    return resultsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, _) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+            const SizedBox(height: 8),
+            Text('Search failed: $err', style: const TextStyle(color: Colors.grey)),
+          ],
         ),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.75,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
       ),
-      itemCount: results.length,
-      itemBuilder: (context, index) {
-        final track = results[index];
-        return _buildTrackCard(track, fromQueue: results);
+      data: (results) {
+        if (results.isEmpty) {
+          return const Center(
+            child: Text(
+              'No results found',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          );
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.all(12),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.75,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+          ),
+          itemCount: results.length,
+          itemBuilder: (context, index) {
+            final track = results[index];
+            return _buildTrackCard(track, fromQueue: results);
+          },
+        );
       },
     );
   }
@@ -334,20 +350,32 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// Builds the dashboard view with Recently Played, Recommended, and Playlists.
   Widget _buildDashboard() {
     final recentlyPlayed = ref.watch(recentlyPlayedProvider);
-    final recommendations = ref.watch(recommendationsProvider);
+    final chartsAsync = ref.watch(chartsProvider);
     final playlists = ref.watch(playlistManagerProvider);
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSection(
-            title: 'Recently Played',
-            tracks: recentlyPlayed,
-          ),
-          _buildSection(
-            title: 'Recommended',
-            tracks: recommendations,
+          if (recentlyPlayed.isNotEmpty)
+            _buildSection(
+              title: 'Recently Played',
+              tracks: recentlyPlayed,
+            ),
+          // Trending charts section from API.
+          chartsAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (err, _) => Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Could not load charts: $err', style: const TextStyle(color: Colors.grey)),
+            ),
+            data: (charts) => _buildSection(
+              title: 'Trending Now',
+              tracks: charts,
+            ),
           ),
           _buildPlaylistsSection(playlists),
           const SizedBox(height: 24),
@@ -403,7 +431,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           children: [
             Stack(
               children: [
-                // Album art placeholder.
+                // Album art or placeholder.
                 Container(
                   width: 140,
                   height: 130,
@@ -411,13 +439,33 @@ class _HomePageState extends ConsumerState<HomePage> {
                     color: Theme.of(context).colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Center(
-                    child: Icon(
-                      Icons.music_note,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: track.imageUrl != null
+                      ? CachedNetworkImage(
+                          imageUrl: track.imageUrl!,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Center(
+                            child: Icon(
+                              Icons.music_note,
+                              size: 48,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Center(
+                            child: Icon(
+                              Icons.music_note,
+                              size: 48,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: Icon(
+                            Icons.music_note,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
                 ),
                 // Download status indicator (bottom-left corner).
                 if (status != null && status != DownloadStatus.notDownloaded)

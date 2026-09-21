@@ -19,6 +19,9 @@ class Track {
   /// Optional known duration of the track.
   final Duration? duration;
 
+  /// YouTube video ID used for API stream URL resolution.
+  final String? videoId;
+
   const Track({
     required this.id,
     required this.title,
@@ -26,7 +29,24 @@ class Track {
     this.imageUrl,
     required this.audioUrl,
     this.duration,
+    this.videoId,
   });
+
+  /// Create a Track from API JSON response.
+  factory Track.fromJson(Map<String, dynamic> json, {String? streamBaseUrl}) {
+    final vid = json['videoId'] ?? '';
+    final audioUrl = streamBaseUrl != null && vid.isNotEmpty
+        ? '$streamBaseUrl/api/stream/$vid'
+        : json['audioUrl'] ?? '';
+    return Track(
+      id: vid.isNotEmpty ? vid : json['id'] ?? '',
+      title: json['title'] ?? '',
+      artist: json['artist'] ?? 'Unknown',
+      imageUrl: json['thumbnail'] ?? json['imageUrl'],
+      audioUrl: audioUrl,
+      videoId: vid.isNotEmpty ? vid : null,
+    );
+  }
 }
 
 /// Data model for a playlist — a named collection of tracks.

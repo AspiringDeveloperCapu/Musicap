@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/providers/download_manager.dart';
@@ -23,7 +24,7 @@ class PlayerPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
         children: [
-          // Album art placeholder — shows a loading spinner while buffering.
+          // Album art — shows real image or placeholder.
           Center(
             child: Container(
               width: 220,
@@ -39,15 +40,8 @@ class PlayerPage extends ConsumerWidget {
                   ),
                 ],
               ),
-              child: Center(
-                child: state.processing
-                    ? const CircularProgressIndicator()
-                    : Icon(
-                        Icons.music_note,
-                        size: 80,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-              ),
+              clipBehavior: Clip.antiAlias,
+              child: _buildAlbumArt(context, state),
             ),
           ),
           const SizedBox(height: 32),
@@ -308,6 +302,48 @@ class PlayerPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Builds album art image from the current track's imageUrl.
+  Widget _buildAlbumArt(BuildContext context, AudioPlayerState state) {
+    // Get the current track from the queue to find its imageUrl.
+    String? imageUrl;
+    if (state.queue.isNotEmpty && state.currentIndex < state.queue.length) {
+      imageUrl = state.queue[state.currentIndex].imageUrl;
+    }
+
+    if (imageUrl != null) {
+      return CachedNetworkImage(
+        imageUrl: imageUrl,
+        fit: BoxFit.cover,
+        placeholder: (context, url) => state.processing
+            ? const Center(child: CircularProgressIndicator())
+            : Center(
+                child: Icon(
+                  Icons.music_note,
+                  size: 80,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+        errorWidget: (context, url, error) => Center(
+          child: Icon(
+            Icons.music_note,
+            size: 80,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+      );
+    }
+
+    return state.processing
+        ? const Center(child: CircularProgressIndicator())
+        : Center(
+            child: Icon(
+              Icons.music_note,
+              size: 80,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          );
   }
 
   /// Formats a Duration into "MM:SS" string.
