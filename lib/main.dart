@@ -333,9 +333,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           padding: const EdgeInsets.all(12),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
-            childAspectRatio: 0.75,
+            childAspectRatio: 0.82,
             crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
+            mainAxisSpacing: 4,
           ),
           itemCount: results.length,
           itemBuilder: (context, index) {
@@ -434,7 +434,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 // Album art or placeholder.
                 Container(
                   width: 140,
-                  height: 130,
+                  height: 120,
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
