@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:music_player/features/player/player_controller.dart';
 
 /// Reusable mini player widget that shows current track info, progress,
@@ -204,15 +203,12 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           imageUrl = state.queue[state.currentIndex].imageUrl;
         }
         if (imageUrl != null) {
-          return CachedNetworkImage(
-            imageUrl: imageUrl,
+          return Image.network(
+            imageUrl,
             fit: BoxFit.cover,
-            placeholder: (context, url) => Icon(
-              Icons.music_note,
-              size: 22,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            errorWidget: (context, url, error) => Icon(
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (context, url, error) => Icon(
               Icons.music_note,
               size: 22,
               color: Theme.of(context).colorScheme.primary,

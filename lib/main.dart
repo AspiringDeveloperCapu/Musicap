@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 import 'features/player/player_controller.dart';
 import 'features/player/player_page.dart';
@@ -333,9 +332,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           padding: const EdgeInsets.all(12),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
-            childAspectRatio: 0.82,
+            childAspectRatio: 0.98,
             crossAxisSpacing: 8,
-            mainAxisSpacing: 4,
+            mainAxisSpacing: 8,
           ),
           itemCount: results.length,
           itemBuilder: (context, index) {
@@ -400,14 +399,14 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
         SizedBox(
-          height: 180,
+          height: 200,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: tracks.length,
             itemBuilder: (context, index) {
               final track = tracks[index];
-              return _buildTrackCard(track, fromQueue: tracks);
+              return _buildTrackCard(track, fromQueue: tracks, width: 140);
             },
           ),
         ),
@@ -417,14 +416,14 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// Builds a single track card with album art placeholder, title, artist,
   /// a download status indicator, and a 3-dot menu for actions.
-  Widget _buildTrackCard(Track track, {required List<Track> fromQueue}) {
+  Widget _buildTrackCard(Track track, {required List<Track> fromQueue, double? width}) {
     final dlState = ref.watch(downloadManagerProvider)[track.id];
     final status = dlState?.status;
 
     return HoverScale(
       onTap: () => _playTrack(track, fromQueue: fromQueue),
       child: Container(
-        width: 140,
+        width: width,
         margin: const EdgeInsets.symmetric(horizontal: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,25 +432,20 @@ class _HomePageState extends ConsumerState<HomePage> {
               children: [
                 // Album art or placeholder.
                 Container(
-                  width: 140,
-                  height: 120,
+                  width: double.infinity,
+                  height: 140,
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: track.imageUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: track.imageUrl!,
+                      ? Image.network(
+                          track.imageUrl!,
                           fit: BoxFit.cover,
-                          placeholder: (context, url) => Center(
-                            child: Icon(
-                              Icons.music_note,
-                              size: 48,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => Center(
+                          width: double.infinity,
+                          height: double.infinity,
+                          errorBuilder: (context, url, error) => Center(
                             child: Icon(
                               Icons.music_note,
                               size: 48,

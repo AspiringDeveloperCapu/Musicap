@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/providers/download_manager.dart';
@@ -313,19 +312,12 @@ class PlayerPage extends ConsumerWidget {
     }
 
     if (imageUrl != null) {
-      return CachedNetworkImage(
-        imageUrl: imageUrl,
+      return Image.network(
+        imageUrl,
         fit: BoxFit.cover,
-        placeholder: (context, url) => state.processing
-            ? const Center(child: CircularProgressIndicator())
-            : Center(
-                child: Icon(
-                  Icons.music_note,
-                  size: 80,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-        errorWidget: (context, url, error) => Center(
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (context, url, error) => Center(
           child: Icon(
             Icons.music_note,
             size: 80,
