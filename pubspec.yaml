@@ -51,6 +51,9 @@ dependencies:
   path: ^1.9.0
   url_launcher: ^6.2.0
 
+  # Local persistence for settings, playlists, download history
+  shared_preferences: ^2.5.0
+
   # Image caching
   cached_network_image: ^3.3.0
 

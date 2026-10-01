@@ -261,6 +261,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     state = state.copyWith(isShuffleEnabled: enabled);
   }
 
+  /// Sets the playback speed (0.5x - 2.0x).
+  Future<void> setSpeed(double speed) async {
+    await _player.setSpeed(speed);
+  }
+
   /// Clears the current error message from state.
   clearError() {
     state = state.copyWith(error: null);

@@ -13,6 +13,7 @@ import 'features/downloads/downloads_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
 import 'providers/download_manager.dart';
+import 'providers/settings_provider.dart';
 import 'models/track.dart';
 import 'audio_handler.dart';
 
@@ -61,6 +62,7 @@ class MusicPlayerApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Musicap',
@@ -69,7 +71,7 @@ class MusicPlayerApp extends ConsumerWidget {
         useMaterial3: true,
       ),
       darkTheme: ThemeData.dark(useMaterial3: true),
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       home: const MainScreen(),
       routes: {
         '/player': (context) => const PlayerPage(),
@@ -94,6 +96,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(audioPlayerProvider);
+
+    // Apply playback speed whenever it changes (including initial load).
+    ref.listen(settingsProvider.select((s) => s.playbackSpeed),
+        (previous, next) {
+      ref.read(audioPlayerProvider.notifier).setSpeed(next);
+    });
 
     // Show error snackbar if the player encounters an error, then clear it.
     if (state.error != null && mounted) {
@@ -739,11 +747,9 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  ThemeMode _themeMode = ThemeMode.system;
-  double _playbackSpeed = 1.0;
-
   @override
   Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
@@ -754,14 +760,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _sectionHeader('Appearance'),
           ListTile(
             leading: Icon(
-              _themeMode == ThemeMode.dark
+              settings.themeMode == ThemeMode.dark
                   ? Icons.dark_mode
-                  : _themeMode == ThemeMode.light
+                  : settings.themeMode == ThemeMode.light
                       ? Icons.light_mode
                       : Icons.brightness_auto,
             ),
             title: const Text('Theme'),
-            subtitle: Text(_themeModeLabel()),
+            subtitle: Text(_themeModeLabel(settings.themeMode)),
             onTap: () => _showThemeDialog(context),
           ),
 
@@ -772,8 +778,25 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ListTile(
             leading: const Icon(Icons.speed),
             title: const Text('Playback Speed'),
-            subtitle: Text('$_playbackSpeed x'),
+            subtitle: Text('${settings.playbackSpeed} x'),
             onTap: () => _showPlaybackSpeedDialog(context),
+          ),
+
+          const Divider(height: 1),
+
+          // Content section.
+          _sectionHeader('Content'),
+          ListTile(
+            leading: const Icon(Icons.public),
+            title: const Text('Country / Region'),
+            subtitle: Text(_regionLabel(settings.region)),
+            onTap: () => _showRegionDialog(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.language),
+            title: const Text('Language'),
+            subtitle: Text(_languageLabel(settings.language)),
+            onTap: () => _showLanguageDialog(context),
           ),
 
           const Divider(height: 1),
@@ -857,8 +880,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  String _themeModeLabel() {
-    switch (_themeMode) {
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
       case ThemeMode.dark:
         return 'Dark';
       case ThemeMode.light:
@@ -869,6 +892,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _showThemeDialog(BuildContext context) {
+    final current = ref.read(settingsProvider).themeMode;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -879,27 +903,27 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             RadioListTile<ThemeMode>(
               title: const Text('System default'),
               value: ThemeMode.system,
-              groupValue: _themeMode,
+              groupValue: current,
               onChanged: (value) {
-                setState(() => _themeMode = value!);
+                ref.read(settingsProvider.notifier).setThemeMode(value!);
                 Navigator.of(context).pop();
               },
             ),
             RadioListTile<ThemeMode>(
               title: const Text('Light'),
               value: ThemeMode.light,
-              groupValue: _themeMode,
+              groupValue: current,
               onChanged: (value) {
-                setState(() => _themeMode = value!);
+                ref.read(settingsProvider.notifier).setThemeMode(value!);
                 Navigator.of(context).pop();
               },
             ),
             RadioListTile<ThemeMode>(
               title: const Text('Dark'),
               value: ThemeMode.dark,
-              groupValue: _themeMode,
+              groupValue: current,
               onChanged: (value) {
-                setState(() => _themeMode = value!);
+                ref.read(settingsProvider.notifier).setThemeMode(value!);
                 Navigator.of(context).pop();
               },
             ),
@@ -910,6 +934,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _showPlaybackSpeedDialog(BuildContext context) {
+    final current = ref.read(settingsProvider).playbackSpeed;
     final speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
     showDialog(
       context: context,
@@ -921,13 +946,111 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             return RadioListTile<double>(
               title: Text('$speed x'),
               value: speed,
-              groupValue: _playbackSpeed,
+              groupValue: current,
               onChanged: (value) {
-                setState(() => _playbackSpeed = value!);
+                ref.read(settingsProvider.notifier).setPlaybackSpeed(value!);
                 Navigator.of(context).pop();
               },
             );
           }).toList(),
+        ),
+      ),
+    );
+  }
+
+  /// Curated list of regions supported by YouTube Music charts.
+  static const Map<String, String> _regions = {
+    'US': 'United States',
+    'GB': 'United Kingdom',
+    'PH': 'Philippines',
+    'CA': 'Canada',
+    'AU': 'Australia',
+    'DE': 'Germany',
+    'FR': 'France',
+    'JP': 'Japan',
+    'KR': 'South Korea',
+    'IN': 'India',
+    'MX': 'Mexico',
+    'BR': 'Brazil',
+    'ID': 'Indonesia',
+    'TH': 'Thailand',
+    'VN': 'Vietnam',
+    'SG': 'Singapore',
+    'MY': 'Malaysia',
+    'ES': 'Spain',
+    'IT': 'Italy',
+    'NL': 'Netherlands',
+    'ZZ': 'Global (default)',
+  };
+
+  static const Map<String, String> _languages = {
+    'en': 'English',
+    'es': 'Spanish',
+    'fr': 'French',
+    'de': 'German',
+    'pt': 'Portuguese',
+    'ja': 'Japanese',
+    'ko': 'Korean',
+    'hi': 'Hindi',
+    'id': 'Indonesian',
+    'th': 'Thai',
+    'vi': 'Vietnamese',
+  };
+
+  String _regionLabel(String code) => _regions[code] ?? code;
+  String _languageLabel(String code) => _languages[code] ?? code;
+
+  void _showRegionDialog(BuildContext context) {
+    final current = ref.read(settingsProvider).region;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Country / Region'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: _regions.entries.map((e) {
+              return RadioListTile<String>(
+                title: Text(e.value),
+                subtitle: Text(e.key),
+                value: e.key,
+                groupValue: current,
+                onChanged: (value) {
+                  ref.read(settingsProvider.notifier).setRegion(value!);
+                  Navigator.of(context).pop();
+                },
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLanguageDialog(BuildContext context) {
+    final current = ref.read(settingsProvider).language;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Language'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: _languages.entries.map((e) {
+              return RadioListTile<String>(
+                title: Text(e.value),
+                subtitle: Text(e.key),
+                value: e.key,
+                groupValue: current,
+                onChanged: (value) {
+                  ref.read(settingsProvider.notifier).setLanguage(value!);
+                  Navigator.of(context).pop();
+                },
+              );
+            }).toList(),
+          ),
         ),
       ),
     );

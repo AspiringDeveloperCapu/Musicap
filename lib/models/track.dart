@@ -47,6 +47,18 @@ class Track {
       videoId: vid.isNotEmpty ? vid : null,
     );
   }
+
+  /// Serialize for local persistence (playlists, download history).
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'artist': artist,
+      'imageUrl': imageUrl,
+      'audioUrl': audioUrl,
+      'videoId': videoId,
+    };
+  }
 }
 
 /// Data model for a playlist — a named collection of tracks.
@@ -69,4 +81,25 @@ class Playlist {
     this.imageUrl,
     required this.tracks,
   });
+
+  factory Playlist.fromJson(Map<String, dynamic> json) {
+    return Playlist(
+      id: json['id'] ?? '',
+      name: json['name'] ?? '',
+      imageUrl: json['imageUrl'],
+      tracks: [
+        for (final t in (json['tracks'] as List? ?? []))
+          Track.fromJson(Map<String, dynamic>.from(t)),
+      ],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'imageUrl': imageUrl,
+      'tracks': tracks.map((t) => t.toJson()).toList(),
+    };
+  }
 }

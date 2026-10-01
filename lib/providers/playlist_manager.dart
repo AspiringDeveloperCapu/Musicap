@@ -1,13 +1,50 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 const _uuid = Uuid();
+const _kPlaylistsKey = 'playlists.v1';
 
 /// Mutable state provider for playlist management.
 /// Allows CRUD operations: create, rename, delete, add tracks, remove tracks.
+/// Playlists are persisted to shared_preferences so they survive restarts.
 class PlaylistManager extends StateNotifier<List<Playlist>> {
-  PlaylistManager() : super(_defaultPlaylists());
+  PlaylistManager() : super(const []) {
+    _load();
+  }
+
+  /// Loads persisted playlists, seeding defaults on first launch.
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kPlaylistsKey);
+    if (raw == null) {
+      state = _defaultPlaylists();
+      await _save();
+      return;
+    }
+    try {
+      final decoded = jsonDecode(raw) as List;
+      state = [
+        for (final p in decoded)
+          Playlist.fromJson(Map<String, dynamic>.from(p)),
+      ];
+    } catch (_) {
+      state = _defaultPlaylists();
+      await _save();
+    }
+  }
+
+  /// Persists the current playlist list.
+  Future<void> _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kPlaylistsKey,
+      jsonEncode(state.map((p) => p.toJson()).toList()),
+    );
+  }
 
   /// Initial hardcoded playlists.
   static List<Playlist> _defaultPlaylists() {
@@ -69,12 +106,14 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
     final id = _uuid.v4();
     final playlist = Playlist(id: id, name: name, tracks: []);
     state = [...state, playlist];
+    _save();
     return id;
   }
 
   /// Deletes a playlist by [playlistId].
   void deletePlaylist(String playlistId) {
     state = state.where((p) => p.id != playlistId).toList();
+    _save();
   }
 
   /// Renames a playlist.
@@ -86,6 +125,7 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
         else
           p,
     ];
+    _save();
   }
 
   /// Adds a track to a playlist. Prevents duplicates by track ID.
@@ -109,6 +149,7 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
         else
           p,
     ];
+    _save();
     return true;
   }
 
@@ -125,6 +166,7 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
         else
           p,
     ];
+    _save();
   }
 }
 
