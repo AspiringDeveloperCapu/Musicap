@@ -221,8 +221,9 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
         )};
       }
     } catch (_) {
+      // Reset to retryable state unless the user canceled it.
       final current = state[track.id];
-      if (current != null) {
+      if (current != null && current.status != DownloadStatus.canceled) {
         state = {...state, track.id: current.copyWith(
           status: DownloadStatus.notDownloaded,
           progress: 0.0,
