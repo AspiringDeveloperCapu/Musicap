@@ -1,8 +1,14 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:music_player/services/download_save_stub.dart'
+    if (dart.library.js_interop) 'package:music_player/services/download_save_web.dart'
+    if (dart.library.io) 'package:music_player/services/download_save_io.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const _kDownloadsKey = 'downloads.v1';
 
 /// Tracks the download status of individual tracks.
 enum DownloadStatus { notDownloaded, downloading, downloaded, canceled }
@@ -14,7 +20,11 @@ class DownloadState {
   final String title;
   final String artist;
   final String audioUrl;
+  final String? imageUrl;
+  final String? videoId;
   final DateTime? downloadedAt;
+  final int? sizeBytes;
+  final String? filePath;
 
   const DownloadState({
     this.status = DownloadStatus.notDownloaded,
@@ -22,7 +32,11 @@ class DownloadState {
     this.title = '',
     this.artist = '',
     this.audioUrl = '',
+    this.imageUrl,
+    this.videoId,
     this.downloadedAt,
+    this.sizeBytes,
+    this.filePath,
   });
 
   DownloadState copyWith({
@@ -31,7 +45,11 @@ class DownloadState {
     String? title,
     String? artist,
     String? audioUrl,
+    String? imageUrl,
+    String? videoId,
     DateTime? downloadedAt,
+    int? sizeBytes,
+    String? filePath,
   }) {
     return DownloadState(
       status: status ?? this.status,
@@ -39,18 +57,105 @@ class DownloadState {
       title: title ?? this.title,
       artist: artist ?? this.artist,
       audioUrl: audioUrl ?? this.audioUrl,
+      imageUrl: imageUrl ?? this.imageUrl,
+      videoId: videoId ?? this.videoId,
       downloadedAt: downloadedAt ?? this.downloadedAt,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      filePath: filePath ?? this.filePath,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'status': status.name,
+      'progress': progress,
+      'title': title,
+      'artist': artist,
+      'audioUrl': audioUrl,
+      'imageUrl': imageUrl,
+      'videoId': videoId,
+      'downloadedAt': downloadedAt?.millisecondsSinceEpoch,
+      'sizeBytes': sizeBytes,
+      'filePath': filePath,
+    };
+  }
+
+  factory DownloadState.fromJson(Map<String, dynamic> json) {
+    return DownloadState(
+      status: DownloadStatus.values.firstWhere(
+        (s) => s.name == json['status'],
+        orElse: () => DownloadStatus.downloaded,
+      ),
+      progress: (json['progress'] as num?)?.toDouble() ?? 1.0,
+      title: json['title'] ?? '',
+      artist: json['artist'] ?? '',
+      audioUrl: json['audioUrl'] ?? '',
+      imageUrl: json['imageUrl'],
+      videoId: json['videoId'],
+      downloadedAt: json['downloadedAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(json['downloadedAt'])
+          : null,
+      sizeBytes: json['sizeBytes'],
+      filePath: json['filePath'],
     );
   }
 }
 
-/// Manages downloading audio files.
+/// Manages downloading audio files: real bytes are fetched with progress,
+/// saved to disk (desktop/mobile) or handed to the browser (web), and the
+/// download history is persisted across restarts.
 class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
   final Dio _dio = Dio();
-  DownloadManager() : super({});
+  bool _hydrated = false;
 
-  /// Simulates a download with progress updates for testing.
-  Future<void> simulateDownload(Track track) async {
+  DownloadManager() : super({}) {
+    _load();
+  }
+
+  /// Restores persisted download history. Files that disappeared from disk
+  /// are dropped from the list.
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kDownloadsKey);
+    if (raw != null) {
+      try {
+        final decoded = jsonDecode(raw) as List;
+        final restored = <String, DownloadState>{};
+        for (final item in decoded) {
+          final dl = DownloadState.fromJson(Map<String, dynamic>.from(item));
+          if (dl.status != DownloadStatus.downloaded) continue;
+          final path = dl.filePath;
+          if (path != null && !fileExists(path)) continue;
+          restored[dl.videoId ?? dl.title] = dl;
+        }
+        state = {...restored, ...state};
+      } catch (_) {
+        // Corrupt history — start fresh.
+      }
+    }
+    _hydrated = true;
+    _save();
+  }
+
+  Future<void> _save() async {
+    if (!_hydrated) return;
+    final prefs = await SharedPreferences.getInstance();
+    final entries = state.entries
+        .where((e) => e.value.status == DownloadStatus.downloaded)
+        .map((e) => e.value.toJson())
+        .toList();
+    await prefs.setString(_kDownloadsKey, jsonEncode(entries));
+  }
+
+  /// Builds a filesystem-safe filename from track metadata.
+  String _filenameFor(Track track) {
+    final raw = '${track.artist} - ${track.title}.mp3';
+    final cleaned = raw.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_').trim();
+    return cleaned.isEmpty ? '${track.id}.mp3' : cleaned;
+  }
+
+  /// Downloads a track with real progress reporting.
+  Future<void> startDownload(Track track) async {
     if (state[track.id]?.status == DownloadStatus.downloaded) return;
     if (state[track.id]?.status == DownloadStatus.downloading) return;
 
@@ -62,59 +167,105 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
         title: track.title,
         artist: track.artist,
         audioUrl: track.audioUrl,
+        imageUrl: track.imageUrl,
+        videoId: track.videoId ?? track.id,
       ),
     };
 
-    for (double p = 0.0; p <= 1.0; p += 0.05) {
-      await Future.delayed(const Duration(milliseconds: 200));
+    try {
+      final response = await _dio.get<List<int>>(
+        track.audioUrl,
+        options: Options(responseType: ResponseType.bytes),
+        onReceiveProgress: (received, total) {
+          if (state[track.id]?.status == DownloadStatus.canceled) {
+            throw DioException.requestCancelled(
+              requestOptions: RequestOptions(path: track.audioUrl),
+              reason: 'Download canceled by user',
+            );
+          }
+          if (total > 0) {
+            _updateProgress(track.id, received / total);
+          }
+        },
+      );
+
       if (state[track.id]?.status == DownloadStatus.canceled) return;
+
+      final bytes = response.data ?? <int>[];
+      final path = await saveFile(bytes, _filenameFor(track));
+
       state = {
         ...state,
         track.id: DownloadState(
-          status: DownloadStatus.downloading,
-          progress: p.clamp(0.0, 1.0),
+          status: DownloadStatus.downloaded,
+          progress: 1.0,
           title: track.title,
           artist: track.artist,
           audioUrl: track.audioUrl,
+          imageUrl: track.imageUrl,
+          videoId: track.videoId ?? track.id,
+          downloadedAt: DateTime.now(),
+          sizeBytes: bytes.length,
+          filePath: path,
         ),
       };
+      _save();
+    } on DioException {
+      // Canceled or network failure — keep canceled state if set,
+      // otherwise reset so the user can retry.
+      final current = state[track.id];
+      if (current != null && current.status != DownloadStatus.canceled) {
+        state = {...state, track.id: current.copyWith(
+          status: DownloadStatus.notDownloaded,
+          progress: 0.0,
+        )};
+      }
+    } catch (_) {
+      final current = state[track.id];
+      if (current != null) {
+        state = {...state, track.id: current.copyWith(
+          status: DownloadStatus.notDownloaded,
+          progress: 0.0,
+        )};
+      }
     }
+  }
 
+  void _updateProgress(String trackId, double progress) {
+    final current = state[trackId];
+    if (current == null || current.status != DownloadStatus.downloading) return;
     state = {
       ...state,
-      track.id: DownloadState(
-        status: DownloadStatus.downloaded,
-        progress: 1.0,
-        title: track.title,
-        artist: track.artist,
-        audioUrl: track.audioUrl,
-        downloadedAt: DateTime.now(),
-      ),
+      trackId: current.copyWith(progress: progress.clamp(0.0, 1.0)),
     };
   }
 
-  /// Simulates downloading multiple tracks (for "Download All").
-  Future<void> simulateDownloadAll(List<Track> tracks) async {
+  /// Downloads multiple tracks sequentially (for "Download All").
+  Future<void> startDownloadAll(List<Track> tracks) async {
     for (final track in tracks) {
       if (state[track.id]?.status != DownloadStatus.downloaded &&
           state[track.id]?.status != DownloadStatus.downloading) {
-        // Stagger downloads slightly so they don't all start at once.
-        simulateDownload(track);
+        startDownload(track);
         await Future.delayed(const Duration(milliseconds: 300));
       }
     }
   }
 
-  /// Removes a track from the download list (does not delete the file).
+  /// Removes a track from the download list (keeps any saved file).
   void removeFromList(String trackId) {
     final updated = Map<String, DownloadState>.from(state);
     updated.remove(trackId);
     state = updated;
+    _save();
   }
 
-  /// Deletes the downloaded file and removes from list.
+  /// Deletes the downloaded file and removes it from the list.
   Future<void> deleteDownload(Track track) async {
-    // In a real app, delete the file from disk here.
+    final entry = state[track.id];
+    final path = entry?.filePath;
+    if (path != null) {
+      await deleteFile(path);
+    }
     removeFromList(track.id);
   }
 
@@ -124,13 +275,7 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
     if (current != null && current.status == DownloadStatus.downloading) {
       state = {
         ...state,
-        trackId: DownloadState(
-          status: DownloadStatus.canceled,
-          progress: current.progress,
-          title: current.title,
-          artist: current.artist,
-          audioUrl: current.audioUrl,
-        ),
+        trackId: current.copyWith(status: DownloadStatus.canceled),
       };
     }
   }
@@ -159,9 +304,14 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
     return downloaded;
   }
 
-  /// Returns the total number of downloaded tracks.
+  /// Number of completed downloads.
   int get downloadedCount =>
       state.values.where((d) => d.status == DownloadStatus.downloaded).length;
+
+  /// Total bytes of all downloaded files.
+  int get totalBytes => state.values
+      .where((d) => d.status == DownloadStatus.downloaded)
+      .fold(0, (sum, d) => sum + (d.sizeBytes ?? 0));
 
   DownloadState getState(String trackId) {
     return state[trackId] ?? const DownloadState();

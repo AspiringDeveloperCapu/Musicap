@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_player/main.dart';
 import 'package:music_player/models/track.dart';
+import 'package:music_player/providers/music_provider.dart';
 import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/features/player/mini_player.dart';
-import 'package:music_player/features/player/download_bar.dart';
 
 /// Detail view for a single playlist. Shows the playlist's tracks with options
 /// to play all, rename, or remove individual tracks.
@@ -105,7 +106,7 @@ class PlaylistDetailPage extends ConsumerWidget {
                               const SnackBar(content: Text('All tracks already downloaded')),
                             );
                           } else {
-                            ref.read(downloadManagerProvider.notifier).simulateDownloadAll(notDownloaded);
+                            ref.read(downloadManagerProvider.notifier).startDownloadAll(notDownloaded);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text('Downloading ${notDownloaded.length} track${notDownloaded.length > 1 ? 's' : ''}'),
@@ -120,6 +121,8 @@ class PlaylistDetailPage extends ConsumerWidget {
                   ),
                 ),
                 // Track list
+                if (_seedTrack(playlist) != null)
+                  _buildRecommendations(context, ref, playlist),
                 Expanded(
                   child: ListView.builder(
                     itemCount: playlist.tracks.length,
@@ -131,6 +134,169 @@ class PlaylistDetailPage extends ConsumerWidget {
                 ),
               ],
             ),
+    );
+  }
+
+  /// First track with a video ID — used to seed recommendations.
+  String? _seedTrack(Playlist playlist) {
+    for (final track in playlist.tracks) {
+      if (track.videoId != null) return track.videoId;
+    }
+    return null;
+  }
+
+  /// Horizontally scrollable "Recommended" section based on [playlist]'s
+  /// first track. Tapping a card plays it; the + button adds it here.
+  Widget _buildRecommendations(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist playlist,
+  ) {
+    final seed = _seedTrack(playlist)!;
+    final recsAsync = ref.watch(trackRecommendationsProvider(seed));
+
+    return recsAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16),
+        child: LinearProgressIndicator(),
+      ),
+      // Recommendations are optional — hide on failure.
+      error: (_, __) => const SizedBox.shrink(),
+      data: (recs) {
+        final existingIds = playlist.tracks.map((t) => t.id).toSet();
+        final filtered =
+            recs.where((t) => !existingIds.contains(t.id)).toList();
+        if (filtered.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Recommended',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            SizedBox(
+              height: 190,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final track = filtered[index];
+                  return HoverScale(
+                    onTap: () {
+                      ref.read(audioPlayerProvider.notifier).playTrack(
+                            track,
+                            fromQueue: filtered,
+                            startIndex: index,
+                          );
+                      ref
+                          .read(recentlyPlayedProvider.notifier)
+                          .addTrack(track);
+                    },
+                    child: Container(
+                      width: 140,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Stack(
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: track.imageUrl != null
+                                    ? Image.network(
+                                        track.imageUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, url, error) =>
+                                            const Center(
+                                          child: Icon(Icons.music_note,
+                                              size: 40),
+                                        ),
+                                      )
+                                    : const Center(
+                                        child: Icon(Icons.music_note,
+                                            size: 40),
+                                      ),
+                              ),
+                              // Add to this playlist.
+                              Positioned(
+                                bottom: 4,
+                                right: 4,
+                                child: Material(
+                                  color: Colors.black.withOpacity(0.55),
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () {
+                                      final added = ref
+                                          .read(playlistManagerProvider
+                                              .notifier)
+                                          .addTrackToPlaylist(
+                                              playlist.id, track);
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(added
+                                              ? 'Added "${track.title}" to "${playlist.name}"'
+                                              : '"${track.title}" is already in this playlist'),
+                                          duration:
+                                              const Duration(seconds: 1),
+                                        ),
+                                      );
+                                    },
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(6),
+                                      child: Icon(Icons.add,
+                                          size: 18, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            track.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            track.artist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -188,7 +354,7 @@ class PlaylistDetailPage extends ConsumerWidget {
               ),
             );
           } else if (value == 'download') {
-            ref.read(downloadManagerProvider.notifier).simulateDownload(track);
+            ref.read(downloadManagerProvider.notifier).startDownload(track);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Downloading "${track.title}"'),

@@ -10,12 +10,55 @@ import 'features/player/download_bar.dart';
 import 'features/playlist/playlist_page.dart';
 import 'features/playlist/playlist_detail_page.dart';
 import 'features/downloads/downloads_page.dart';
+import 'features/genres/genres_page.dart';
+import 'features/genres/genre_detail_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
 import 'providers/download_manager.dart';
 import 'providers/settings_provider.dart';
+import 'models/genre.dart';
 import 'models/track.dart';
 import 'audio_handler.dart';
+
+/// Regions supported by YouTube Music charts (used by Settings and Home).
+const Map<String, String> kRegions = {
+  'US': 'United States',
+  'GB': 'United Kingdom',
+  'PH': 'Philippines',
+  'CA': 'Canada',
+  'AU': 'Australia',
+  'DE': 'Germany',
+  'FR': 'France',
+  'JP': 'Japan',
+  'KR': 'South Korea',
+  'IN': 'India',
+  'MX': 'Mexico',
+  'BR': 'Brazil',
+  'ID': 'Indonesia',
+  'TH': 'Thailand',
+  'VN': 'Vietnam',
+  'SG': 'Singapore',
+  'MY': 'Malaysia',
+  'ES': 'Spain',
+  'IT': 'Italy',
+  'NL': 'Netherlands',
+  'ZZ': 'Global (default)',
+};
+
+/// Languages supported by the backend (used by Settings).
+const Map<String, String> kLanguages = {
+  'en': 'English',
+  'es': 'Spanish',
+  'fr': 'French',
+  'de': 'German',
+  'pt': 'Portuguese',
+  'ja': 'Japanese',
+  'ko': 'Korean',
+  'hi': 'Hindi',
+  'id': 'Indonesian',
+  'th': 'Thai',
+  'vi': 'Vietnamese',
+};
 
 /// Reusable widget that scales up slightly on hover and responds to taps.
 /// Used on track cards and playlist cards for a hover interaction effect.
@@ -122,6 +165,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         index: _currentIndex,
         children: const [
           HomePage(),
+          GenresPage(),
           PlaylistPage(),
           DownloadsPage(),
           SettingsPage(),
@@ -131,7 +175,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const MiniPlayer(),
-          // Bottom navigation bar for switching between Home, Library, and Settings.
+          // Bottom navigation bar for switching between main sections.
           BottomNavigationBar(
             currentIndex: _currentIndex,
             onTap: (index) {
@@ -141,6 +185,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             },
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+              BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Genres'),
               BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
               BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
               BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
@@ -172,6 +217,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _searchFocusNode.addListener(() => setState(() {}));
   }
 
   @override
@@ -185,6 +231,15 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// Syncs the search text field input to the Riverpod search query provider.
   void _onSearchChanged() {
     ref.read(searchQueryProvider.notifier).state = _searchController.text;
+  }
+
+  /// Runs a search: fills the field, updates the query, saves to history,
+  /// and hides the keyboard.
+  void _runSearch(String query) {
+    _searchController.text = query;
+    ref.read(searchQueryProvider.notifier).state = query;
+    ref.read(recentSearchesProvider.notifier).addSearch(query);
+    _searchFocusNode.unfocus();
   }
 
   /// Plays a track within the context of a given queue (section or playlist).
@@ -300,76 +355,312 @@ class _HomePageState extends ConsumerState<HomePage> {
                   )
                 : null,
           ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              ref.read(recentSearchesProvider.notifier).addSearch(value);
+              _searchFocusNode.unfocus();
+            }
+          },
         ),
         actions: [
           // Download panel icon with active download badge.
           _DownloadIcon(),
         ],
       ),
-      // Show search results grid if searching, otherwise show the dashboard.
-      body: query.isNotEmpty
-          ? _buildSearchResults(searchResultsAsync)
-          : _buildDashboard(),
+      // Search results while typing, recent searches while focused on an
+      // empty field, otherwise the dashboard.
+      body: _buildBody(searchResultsAsync, query),
     );
   }
 
-  /// Builds a 2-column grid of track cards from the search results.
-  Widget _buildSearchResults(AsyncValue<List<Track>> resultsAsync) {
+  Widget _buildBody(AsyncValue<List<Track>> resultsAsync, String query) {
+    if (query.isNotEmpty) {
+      return _buildSearchResults(resultsAsync, query);
+    }
+    // Recent searches replace the dashboard while the field is focused
+    // (falls back to the dashboard when history is empty).
+    if (_searchFocusNode.hasFocus) {
+      return _buildRecentSearches();
+    }
+    return _buildDashboard();
+  }
+
+  /// Search view: list rows with art/title/artist/duration, suggestions
+  /// while results load, and distinct loading/empty/error states.
+  Widget _buildSearchResults(AsyncValue<List<Track>> resultsAsync, String query) {
     return resultsAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => _buildSuggestionList(),
       error: (err, _) => Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.grey),
             const SizedBox(height: 8),
-            Text('Search failed: $err', style: const TextStyle(color: Colors.grey)),
+            Text('Search failed: $err',
+                style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => ref.invalidate(searchResultsProvider),
+              child: const Text('Retry'),
+            ),
           ],
         ),
       ),
       data: (results) {
         if (results.isEmpty) {
-          return const Center(
-            child: Text(
-              'No results found',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
+          return Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.search_off,
+                          size: 48, color: Colors.grey),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No results for "$query"',
+                        style:
+                            const TextStyle(fontSize: 16, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              _suggestionsBelow(),
+            ],
           );
         }
-        return GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.98,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-          ),
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 4),
           itemCount: results.length,
           itemBuilder: (context, index) {
             final track = results[index];
-            return _buildTrackCard(track, fromQueue: results);
+            return _buildResultTile(track, results);
           },
         );
       },
     );
   }
 
-  /// Builds the dashboard view with Recently Played, Recommended, and Playlists.
+  /// A single search result row: album art, title, artist, duration, menu.
+  Widget _buildResultTile(Track track, List<Track> fromQueue) {
+    final dlState = ref.watch(downloadManagerProvider)[track.id];
+    final durationLabel = track.duration != null
+        ? '${track.duration!.inMinutes}:${(track.duration!.inSeconds % 60).toString().padLeft(2, '0')}'
+        : null;
+
+    return ListTile(
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: track.imageUrl != null
+              ? Image.network(
+                  track.imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, url, error) =>
+                      const Icon(Icons.music_note),
+                )
+              : const Icon(Icons.music_note),
+        ),
+      ),
+      title: Text(
+        track.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        track.artist,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (durationLabel != null)
+            Text(
+              durationLabel,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              ),
+            ),
+          if (dlState?.status == DownloadStatus.downloaded)
+            const Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Icon(Icons.download_done, size: 16, color: Colors.green),
+            ),
+          PopupMenuButton<String>(
+            icon: Icon(
+              Icons.more_vert,
+              size: 20,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+            ),
+            onSelected: (value) {
+              if (value == 'queue') {
+                ref.read(audioPlayerProvider.notifier).addToQueue(track);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Added "${track.title}" to queue'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              } else if (value == 'download') {
+                ref.read(downloadManagerProvider.notifier).startDownload(track);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Downloading "${track.title}"'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              } else if (value == 'playlist') {
+                _showAddToPlaylistDialog(context, ref, track);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'queue', child: Text('Add to queue')),
+              PopupMenuItem(value: 'download', child: Text('Download')),
+              PopupMenuItem(value: 'playlist', child: Text('Add to playlist')),
+            ],
+          ),
+        ],
+      ),
+      onTap: () => _playTrack(track, fromQueue: fromQueue),
+    );
+  }
+
+  /// Autocomplete suggestion rows shown while results are loading.
+  Widget _buildSuggestionList() {
+    final suggestionsAsync = ref.watch(searchSuggestionsProvider);
+    return suggestionsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Center(child: CircularProgressIndicator()),
+      data: (suggestions) {
+        if (suggestions.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return ListView(
+          children: [
+            for (final suggestion in suggestions)
+              ListTile(
+                leading: const Icon(Icons.search),
+                title: Text(suggestion),
+                onTap: () => _runSearch(suggestion),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Suggestions shown below the "no results" empty state.
+  Widget _suggestionsBelow() {
+    final suggestionsAsync = ref.watch(searchSuggestionsProvider);
+    return suggestionsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (suggestions) {
+        if (suggestions.isEmpty) return const SizedBox.shrink();
+        return Container(
+          constraints: const BoxConstraints(maxHeight: 180),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                const Divider(height: 1),
+                for (final suggestion in suggestions)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.search, size: 18),
+                    title: Text(suggestion),
+                    onTap: () => _runSearch(suggestion),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// History list shown when the search field is focused but empty.
+  Widget _buildRecentSearches() {
+    final recents = ref.watch(recentSearchesProvider);
+    if (recents.isEmpty) return _buildDashboard();
+
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Recent searches',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              TextButton(
+                onPressed: () =>
+                    ref.read(recentSearchesProvider.notifier).clear(),
+                child: const Text('Clear all'),
+              ),
+            ],
+          ),
+        ),
+        for (final query in recents)
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: Text(query),
+            trailing: IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () =>
+                  ref.read(recentSearchesProvider.notifier).removeSearch(query),
+            ),
+            onTap: () => _runSearch(query),
+          ),
+      ],
+    );
+  }
+
+  /// Builds the dashboard view with quick genre picks, recently played,
+  /// recommendations, region-based charts, and playlists.
   Widget _buildDashboard() {
     final recentlyPlayed = ref.watch(recentlyPlayedProvider);
     final chartsAsync = ref.watch(chartsProvider);
+    final recommendationsAsync = ref.watch(recommendationsProvider);
+    final genresAsync = ref.watch(genresProvider);
     final playlists = ref.watch(playlistManagerProvider);
+    final region = ref.watch(settingsProvider.select((s) => s.region));
+    final regionName = kRegions[region] ?? region;
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Genre quick-picks — tap to open that genre's playlists.
+          _buildGenreChips(genresAsync),
           if (recentlyPlayed.isNotEmpty)
             _buildSection(
               title: 'Recently Played',
               tracks: recentlyPlayed,
             ),
-          // Trending charts section from API.
+          // Personalized recommendations from the radio/watch playlist.
+          recommendationsAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            // Recommendations are optional — hide the section on failure.
+            error: (_, __) => const SizedBox.shrink(),
+            data: (recs) => recs.isEmpty
+                ? const SizedBox.shrink()
+                : _buildSection(
+                    title: 'Made For You',
+                    tracks: recs,
+                  ),
+          ),
+          // Trending charts for the selected region.
           chartsAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(16),
@@ -380,7 +671,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               child: Text('Could not load charts: $err', style: const TextStyle(color: Colors.grey)),
             ),
             data: (charts) => _buildSection(
-              title: 'Trending Now',
+              title: 'Trending in $regionName',
               tracks: charts,
             ),
           ),
@@ -388,6 +679,55 @@ class _HomePageState extends ConsumerState<HomePage> {
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+
+  /// Horizontal row of genre chips (first genres section) for quick access.
+  Widget _buildGenreChips(AsyncValue<List<GenreSection>> genresAsync) {
+    return genresAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (sections) {
+        final items = sections.isNotEmpty
+            ? sections.first.items
+            : const <GenreItem>[];
+        if (items.isEmpty) return const SizedBox.shrink();
+        return SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return HoverScale(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => GenreDetailPage(item: item),
+                  ),
+                ),
+                scale: 1.03,
+                child: Container(
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    item.title,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -521,7 +861,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       } else if (value == 'addToPlaylist') {
                         _showAddToPlaylistDialog(context, ref, track);
                       } else if (value == 'download') {
-                        ref.read(downloadManagerProvider.notifier).simulateDownload(track);
+                        ref.read(downloadManagerProvider.notifier).startDownload(track);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Downloading "${track.title}"'),
@@ -959,46 +1299,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   /// Curated list of regions supported by YouTube Music charts.
-  static const Map<String, String> _regions = {
-    'US': 'United States',
-    'GB': 'United Kingdom',
-    'PH': 'Philippines',
-    'CA': 'Canada',
-    'AU': 'Australia',
-    'DE': 'Germany',
-    'FR': 'France',
-    'JP': 'Japan',
-    'KR': 'South Korea',
-    'IN': 'India',
-    'MX': 'Mexico',
-    'BR': 'Brazil',
-    'ID': 'Indonesia',
-    'TH': 'Thailand',
-    'VN': 'Vietnam',
-    'SG': 'Singapore',
-    'MY': 'Malaysia',
-    'ES': 'Spain',
-    'IT': 'Italy',
-    'NL': 'Netherlands',
-    'ZZ': 'Global (default)',
-  };
-
-  static const Map<String, String> _languages = {
-    'en': 'English',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'pt': 'Portuguese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'hi': 'Hindi',
-    'id': 'Indonesian',
-    'th': 'Thai',
-    'vi': 'Vietnamese',
-  };
-
-  String _regionLabel(String code) => _regions[code] ?? code;
-  String _languageLabel(String code) => _languages[code] ?? code;
+  String _regionLabel(String code) => kRegions[code] ?? code;
+  String _languageLabel(String code) => kLanguages[code] ?? code;
 
   void _showRegionDialog(BuildContext context) {
     final current = ref.read(settingsProvider).region;
@@ -1010,7 +1312,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           width: double.maxFinite,
           child: ListView(
             shrinkWrap: true,
-            children: _regions.entries.map((e) {
+            children: kRegions.entries.map((e) {
               return RadioListTile<String>(
                 title: Text(e.value),
                 subtitle: Text(e.key),
@@ -1038,7 +1340,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           width: double.maxFinite,
           child: ListView(
             shrinkWrap: true,
-            children: _languages.entries.map((e) {
+            children: kLanguages.entries.map((e) {
               return RadioListTile<String>(
                 title: Text(e.value),
                 subtitle: Text(e.key),
@@ -1103,15 +1405,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 }
 
-/// Global audio handler instance for background audio playback via audio_service.
-late MusicAudioHandler _audioHandler;
-
 /// App entry point. Initializes Flutter bindings, audio service for background
 /// playback, and launches the app with a Riverpod ProviderScope.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  _audioHandler = await AudioService.init(
+  await AudioService.init(
     builder: () => MusicAudioHandler(),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.example.music_player.channel.audio',

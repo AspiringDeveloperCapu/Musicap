@@ -1,11 +1,21 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_player/models/genre.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/playlist_manager.dart';
+import 'package:music_player/providers/settings_provider.dart';
 import 'package:music_player/services/music_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// Fetches trending charts from the backend API.
+/// Fetches trending charts for the user's selected region/language.
 final chartsProvider = FutureProvider<List<Track>>((ref) async {
-  return musicApi.getCharts(limit: 20);
+  final settings = ref.watch(settingsProvider);
+  return musicApi.getCharts(
+    limit: 20,
+    cc: settings.region,
+    lang: settings.language,
+  );
 });
 
 /// Recently played tracks — stored locally in memory.
@@ -21,9 +31,63 @@ class RecentlyPlayedNotifier extends StateNotifier<List<Track>> {
   }
 }
 
-/// Hardcoded list of recommended tracks — replaced with charts for now.
-final recommendationsProvider = Provider<List<Track>>((ref) {
-  return const [];
+/// "Made for you" recommendations seeded by the most recently played track
+/// (or charts on first launch).
+final recommendationsProvider = FutureProvider<List<Track>>((ref) async {
+  final recent = ref.watch(recentlyPlayedProvider);
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+
+  String? seed;
+  if (recent.isNotEmpty) {
+    seed = recent.first.videoId ?? recent.first.id;
+  }
+  if (seed == null) {
+    final charts = await ref.watch(chartsProvider.future);
+    if (charts.isNotEmpty) {
+      seed = charts.first.videoId ?? charts.first.id;
+    }
+  }
+  if (seed == null) return [];
+
+  final recs = await musicApi.getRecommendations(
+    videoId: seed,
+    limit: 20,
+    lang: language,
+  );
+  final seedId = seed;
+  return recs.where((t) => t.id != seedId).toList();
+});
+
+/// YT Music Genres & Moods sections for the Genres page and Home chips.
+final genresProvider = FutureProvider<List<GenreSection>>((ref) async {
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+  return musicApi.getGenres(lang: language);
+});
+
+/// Recommendations seeded by a specific track (used in playlist detail).
+final trackRecommendationsProvider =
+    FutureProvider.family<List<Track>, String>((ref, seedVideoId) async {
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+  final recs = await musicApi.getRecommendations(
+    videoId: seedVideoId,
+    limit: 20,
+    lang: language,
+  );
+  return recs.where((t) => t.id != seedVideoId).toList();
+});
+
+/// Playlists inside one genre/mood category.
+final genrePlaylistsProvider =
+    FutureProvider.family<List<GenrePlaylist>, String>((ref, params) async {
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+  return musicApi.getGenrePlaylists(params, limit: 12, lang: language);
+});
+
+/// Tracks of a playlist (genre playlists, recommendations into playlists).
+final playlistTracksProvider =
+    FutureProvider.family<List<Track>, String>((ref, playlistId) async {
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+  return musicApi.getPlaylistTracks(playlistId, limit: 50, lang: language);
 });
 
 /// User playlists — backed by playlistManagerProvider.
@@ -46,5 +110,78 @@ final searchResultsProvider = FutureProvider<List<Track>>((ref) async {
   final currentQuery = ref.read(searchQueryProvider);
   if (currentQuery != query) return [];
 
-  return musicApi.search(query, limit: 30);
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+  return musicApi.search(query, limit: 30, lang: language);
 });
+
+/// Debounced autocomplete suggestions for the search field.
+final searchSuggestionsProvider = FutureProvider<List<String>>((ref) async {
+  final query = ref.watch(searchQueryProvider).trim();
+  if (query.length < 2) return [];
+  final language = ref.watch(settingsProvider.select((s) => s.language));
+
+  // Wait 300ms for the user to stop typing.
+  await Future.delayed(const Duration(milliseconds: 300));
+
+  final currentQuery = ref.read(searchQueryProvider).trim();
+  if (currentQuery != query) return [];
+
+  try {
+    final suggestions =
+        await musicApi.getSuggestions(query, lang: language);
+    return suggestions.where((s) => s.isNotEmpty).take(8).toList();
+  } catch (_) {
+    return [];
+  }
+});
+
+/// Search history — persisted so it survives restarts.
+final recentSearchesProvider =
+    StateNotifierProvider<RecentSearchesNotifier, List<String>>((ref) {
+  return RecentSearchesNotifier();
+});
+
+class RecentSearchesNotifier extends StateNotifier<List<String>> {
+  RecentSearchesNotifier() : super(const []) {
+    _load();
+  }
+
+  static const _kKey = 'recentSearches.v1';
+  static const _kMax = 10;
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kKey);
+    if (raw == null) return;
+    try {
+      state = (jsonDecode(raw) as List).cast<String>();
+    } catch (_) {
+      // Corrupt history — start fresh.
+    }
+  }
+
+  Future<void> addSearch(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    state = [
+      trimmed,
+      ...state.where((q) => q.toLowerCase() != trimmed.toLowerCase()),
+    ].take(_kMax).toList();
+    await _save();
+  }
+
+  Future<void> removeSearch(String query) async {
+    state = state.where((q) => q != query).toList();
+    await _save();
+  }
+
+  Future<void> clear() async {
+    state = [];
+    await _save();
+  }
+
+  Future<void> _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kKey, jsonEncode(state));
+  }
+}

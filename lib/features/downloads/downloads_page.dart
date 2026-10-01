@@ -4,7 +4,6 @@ import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
-import 'package:music_player/features/player/download_bar.dart';
 
 /// Downloads page showing all downloaded songs with sort, storage info,
 /// swipe-to-delete, and tap-to-play.
@@ -20,7 +19,8 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final downloads = ref.watch(downloadManagerProvider);
+    // Rebuild whenever download state changes.
+    ref.watch(downloadManagerProvider);
     final manager = ref.read(downloadManagerProvider.notifier);
     final downloaded = manager.getDownloaded(sortBy: _sortBy);
 
@@ -43,7 +43,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
       body: Column(
         children: [
           // Storage info bar.
-          _buildStorageInfo(context, downloaded.length),
+          _buildStorageInfo(context, downloaded.length, manager.totalBytes),
           const Divider(height: 1),
           // Downloaded tracks list.
           Expanded(
@@ -67,9 +67,11 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
     );
   }
 
-  Widget _buildStorageInfo(BuildContext context, int count) {
-    // Simulated storage — each track ~4MB.
-    final sizeMB = count * 4;
+  Widget _buildStorageInfo(BuildContext context, int count, int totalBytes) {
+    final sizeMB = totalBytes / (1024 * 1024);
+    final sizeLabel = sizeMB >= 100
+        ? sizeMB.toStringAsFixed(0)
+        : sizeMB.toStringAsFixed(1);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
@@ -82,7 +84,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
           ),
           const SizedBox(width: 8),
           Text(
-            '$count song${count != 1 ? 's' : ''} • ${sizeMB}MB',
+            '$count song${count != 1 ? 's' : ''} • ${sizeLabel}MB',
             style: TextStyle(
               fontSize: 13,
               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
@@ -174,19 +176,32 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
         );
       },
       child: ListTile(
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Center(
-            child: Icon(
-              Icons.music_note,
-              size: 22,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: dl.imageUrl != null
+                ? Image.network(
+                    dl.imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, url, error) => Container(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      child: Icon(
+                        Icons.music_note,
+                        size: 22,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  )
+                : Container(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    child: Icon(
+                      Icons.music_note,
+                      size: 22,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
           ),
         ),
         title: Text(
@@ -261,11 +276,18 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
     DownloadState dl,
     String trackId,
   ) {
+    // Play the saved file directly when one exists (offline playback);
+    // otherwise fall back to the backend stream URL (web).
+    final audioUrl = dl.filePath != null
+        ? Uri.file(dl.filePath!).toString()
+        : dl.audioUrl;
     final track = Track(
       id: trackId,
       title: dl.title,
       artist: dl.artist,
-      audioUrl: dl.audioUrl,
+      imageUrl: dl.imageUrl,
+      audioUrl: audioUrl,
+      videoId: dl.videoId,
     );
     // Play as a single track queue.
     ref.read(audioPlayerProvider.notifier).playTrack(track);
@@ -281,7 +303,11 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
               id: e.key,
               title: e.value.title,
               artist: e.value.artist,
-              audioUrl: e.value.audioUrl,
+              imageUrl: e.value.imageUrl,
+              audioUrl: e.value.filePath != null
+                  ? Uri.file(e.value.filePath!).toString()
+                  : e.value.audioUrl,
+              videoId: e.value.videoId,
             ))
         .toList();
 

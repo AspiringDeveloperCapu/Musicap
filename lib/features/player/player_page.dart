@@ -387,7 +387,7 @@ class PlayerPage extends ConsumerWidget {
             : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
       ),
       onPressed: () {
-        ref.read(downloadManagerProvider.notifier).simulateDownload(track);
+        ref.read(downloadManagerProvider.notifier).startDownload(track);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Downloading "${track.title}"'),

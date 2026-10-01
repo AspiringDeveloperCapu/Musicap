@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:music_player/models/genre.dart';
 import 'package:music_player/models/track.dart';
 
 const String baseUrl = 'http://localhost:5000';
@@ -11,28 +12,89 @@ class MusicApi {
   ));
 
   /// Search songs by query.
-  Future<List<Track>> search(String query, {int limit = 20}) async {
+  Future<List<Track>> search(String query, {int limit = 20, String? lang}) async {
     final response = await _dio.get('/api/search', queryParameters: {
       'q': query,
       'limit': limit,
+      if (lang != null) 'lang': lang,
     });
     final results = response.data['results'] as List;
     return results.map((r) => _trackFromJson(r)).toList();
   }
 
-  /// Get trending charts.
-  Future<List<Track>> getCharts({int limit = 20}) async {
+  /// Get trending charts for a country.
+  Future<List<Track>> getCharts({int limit = 20, String? cc, String? lang}) async {
     final response = await _dio.get('/api/charts', queryParameters: {
       'limit': limit,
+      if (cc != null) 'cc': cc,
+      if (lang != null) 'lang': lang,
+    });
+    final results = response.data['results'] as List;
+    return results.map((r) => _trackFromJson(r)).toList();
+  }
+
+  /// Get YT Music's Genres & Moods sections.
+  Future<List<GenreSection>> getGenres({String? lang}) async {
+    final response = await _dio.get('/api/genres', queryParameters: {
+      if (lang != null) 'lang': lang,
+    });
+    final sections = response.data['sections'] as List;
+    return sections
+        .map((s) => GenreSection.fromJson(Map<String, dynamic>.from(s)))
+        .toList();
+  }
+
+  /// Resolve a genre/mood params token into its playlists.
+  Future<List<GenrePlaylist>> getGenrePlaylists(
+    String params, {
+    int limit = 12,
+    String? lang,
+  }) async {
+    final response = await _dio.get('/api/genre', queryParameters: {
+      'params': params,
+      'limit': limit,
+      if (lang != null) 'lang': lang,
+    });
+    final results = response.data['results'] as List;
+    return results
+        .map((p) => GenrePlaylist.fromJson(Map<String, dynamic>.from(p)))
+        .toList();
+  }
+
+  /// Get the tracks of a playlist (used for genre playlists).
+  Future<List<Track>> getPlaylistTracks(
+    String playlistId, {
+    int limit = 50,
+    String? lang,
+  }) async {
+    final response = await _dio.get('/api/playlist/$playlistId', queryParameters: {
+      'limit': limit,
+      if (lang != null) 'lang': lang,
+    });
+    final results = response.data['results'] as List;
+    return results.map((r) => _trackFromJson(r)).toList();
+  }
+
+  /// Get radio/watch-playlist recommendations seeded by a video ID.
+  Future<List<Track>> getRecommendations({
+    required String videoId,
+    int limit = 20,
+    String? lang,
+  }) async {
+    final response = await _dio.get('/api/recommendations', queryParameters: {
+      'videoId': videoId,
+      'limit': limit,
+      if (lang != null) 'lang': lang,
     });
     final results = response.data['results'] as List;
     return results.map((r) => _trackFromJson(r)).toList();
   }
 
   /// Get search autocomplete suggestions.
-  Future<List<String>> getSuggestions(String query) async {
+  Future<List<String>> getSuggestions(String query, {String? lang}) async {
     final response = await _dio.get('/api/suggestions', queryParameters: {
       'q': query,
+      if (lang != null) 'lang': lang,
     });
     final results = response.data['results'] as List;
     return results.cast<String>();
@@ -73,8 +135,27 @@ class MusicApi {
       artist: json['artist'] ?? 'Unknown',
       imageUrl: json['thumbnail'],
       audioUrl: getStreamUrl(videoId),
+      duration: _parseDuration(json['duration']),
       videoId: videoId,
     );
+  }
+
+  /// Parses "m:ss" / "h:mm:ss" duration strings from the API.
+  Duration? _parseDuration(dynamic raw) {
+    if (raw is String && raw.isNotEmpty) {
+      final parts = raw.split(':');
+      if (parts.length >= 2 && parts.length <= 3) {
+        final numbers = parts.map((p) => int.tryParse(p.trim())).toList();
+        if (numbers.every((n) => n != null)) {
+          var seconds = 0;
+          for (final n in numbers) {
+            seconds = seconds * 60 + n!;
+          }
+          return Duration(seconds: seconds);
+        }
+      }
+    }
+    return null;
   }
 }
 
