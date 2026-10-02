@@ -24,6 +24,7 @@ import 'services/download_save_stub.dart'
     if (dart.library.js_interop) 'package:music_player/services/download_save_web.dart'
     if (dart.library.io) 'package:music_player/services/download_save_io.dart';
 import 'widgets/horizontal_row.dart';
+import 'widgets/track_menu.dart';
 import 'audio_handler.dart';
 
 /// Regions supported by YouTube Music charts (used by Settings and Home).
@@ -248,93 +249,18 @@ class _HomePageState extends ConsumerState<HomePage> {
     _searchFocusNode.unfocus();
   }
 
-  /// Plays a track within the context of a given queue (section or playlist).
-  void _playTrack(Track track, {required List<Track> fromQueue}) async {
+  /// Plays a track as a single-song queue (search results should only
+  /// queue the song the user picked, not the whole result list).
+  void _playTrack(Track track, {List<Track>? fromQueue}) async {
     final controller = ref.read(audioPlayerProvider.notifier);
-    final index = fromQueue.indexOf(track);
-    await controller.playTrack(track, fromQueue: fromQueue, startIndex: index >= 0 ? index : 0);
+    final queue = fromQueue ?? [track];
+    final index = queue.indexOf(track);
+    await controller.playTrack(
+      track,
+      fromQueue: queue,
+      startIndex: index >= 0 ? index : 0,
+    );
     ref.read(recentlyPlayedProvider.notifier).addTrack(track);
-  }
-
-  /// Shows a dialog listing all playlists, allowing the user to add a track.
-  void _showAddToPlaylistDialog(BuildContext context, WidgetRef ref, Track track) {
-    final playlists = ref.read(playlistManagerProvider);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Add "${track.title}" to playlist'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: playlists.length,
-            itemBuilder: (context, index) {
-              final playlist = playlists[index];
-              return ListTile(
-                leading: Icon(
-                  Icons.queue_music,
-                  color: Theme.of(context).colorScheme.secondary,
-                ),
-                title: Text(playlist.name),
-                subtitle: Text('${playlist.tracks.length} tracks'),
-                onTap: () {
-                  final added = ref.read(playlistManagerProvider.notifier).addTrackToPlaylist(
-                    playlist.id,
-                    track,
-                  );
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        added
-                            ? 'Added "${track.title}" to "${playlist.name}"'
-                            : '"${track.title}" is already in "${playlist.name}"',
-                      ),
-                      duration: const Duration(seconds: 1),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _confirmDeleteDownload(BuildContext context, WidgetRef ref, Track track) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete download?'),
-        content: Text('Delete "${track.title}" from downloads? This cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              ref.read(downloadManagerProvider.notifier).deleteDownload(track);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Deleted "${track.title}"'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -442,98 +368,20 @@ class _HomePageState extends ConsumerState<HomePage> {
           itemCount: results.length,
           itemBuilder: (context, index) {
             final track = results[index];
-            return _buildResultTile(track, results);
+            return _buildResultTile(track);
           },
         );
       },
     );
   }
 
-  /// A single search result row: album art, title, artist, duration, menu.
-  Widget _buildResultTile(Track track, List<Track> fromQueue) {
-    final dlState = ref.watch(downloadManagerProvider)[track.id];
-    final durationLabel = track.duration != null
-        ? '${track.duration!.inMinutes}:${(track.duration!.inSeconds % 60).toString().padLeft(2, '0')}'
-        : null;
-
-    return ListTile(
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: track.imageUrl != null
-              ? Image.network(
-                  track.imageUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, url, error) =>
-                      const Icon(Icons.music_note),
-                )
-              : const Icon(Icons.music_note),
-        ),
-      ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        track.artist,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (durationLabel != null)
-            Text(
-              durationLabel,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-              ),
-            ),
-          if (dlState?.status == DownloadStatus.downloaded)
-            const Padding(
-              padding: EdgeInsets.only(left: 4),
-              child: Icon(Icons.download_done, size: 16, color: Colors.green),
-            ),
-          PopupMenuButton<String>(
-            icon: Icon(
-              Icons.more_vert,
-              size: 20,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-            ),
-            onSelected: (value) {
-              if (value == 'queue') {
-                ref.read(audioPlayerProvider.notifier).addToQueue(track);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Added "${track.title}" to queue'),
-                    duration: const Duration(seconds: 1),
-                  ),
-                );
-              } else if (value == 'download') {
-                ref.read(downloadManagerProvider.notifier).startDownload(track);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Downloading "${track.title}"'),
-                    duration: const Duration(seconds: 1),
-                  ),
-                );
-              } else if (value == 'playlist') {
-                _showAddToPlaylistDialog(context, ref, track);
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'queue', child: Text('Add to queue')),
-              PopupMenuItem(value: 'download', child: Text('Download')),
-              PopupMenuItem(value: 'playlist', child: Text('Add to playlist')),
-            ],
-          ),
-        ],
-      ),
-      onTap: () => _playTrack(track, fromQueue: fromQueue),
+  /// A single search result row. Tapping queues only the picked song.
+  Widget _buildResultTile(Track track) {
+    return TrackTile(
+      track: track,
+      showDuration: true,
+      showDownloadBadge: true,
+      onTap: () => _playTrack(track),
     );
   }
 
@@ -829,57 +677,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 Positioned(
                   top: 4,
                   right: 4,
-                  child: PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                    ),
+                  child: TrackMenuButton(
+                    track,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
-                    onSelected: (value) {
-                      if (value == 'addQueue') {
-                        ref.read(audioPlayerProvider.notifier).addToQueue(track);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Added "${track.title}" to queue'),
-                            duration: const Duration(seconds: 1),
-                          ),
-                        );
-                      } else if (value == 'addToPlaylist') {
-                        _showAddToPlaylistDialog(context, ref, track);
-                      } else if (value == 'download') {
-                        ref.read(downloadManagerProvider.notifier).startDownload(track);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Downloading "${track.title}"'),
-                            duration: const Duration(seconds: 1),
-                          ),
-                        );
-                      } else if (value == 'deleteDownload') {
-                        _confirmDeleteDownload(context, ref, track);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'addQueue',
-                        child: Text('Add to queue'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'addToPlaylist',
-                        child: Text('Add to playlist'),
-                      ),
-                      if (status == DownloadStatus.downloaded)
-                        const PopupMenuItem(
-                          value: 'deleteDownload',
-                          child: Text('Delete download'),
-                        )
-                      else
-                        const PopupMenuItem(
-                          value: 'download',
-                          child: Text('Download'),
-                        ),
-                    ],
                   ),
                 ),
               ],
@@ -1462,6 +1263,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 /// playback, and launches the app with a Riverpod ProviderScope.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Point the API at the saved backend before providers fire their first
+  // requests, so startup fetches don't race the async settings load and hit
+  // the stale default host.
+  await applyPersistedServerUrl();
 
   // Never let audio_service init brick startup — a failure here only means
   // no background/notification controls.

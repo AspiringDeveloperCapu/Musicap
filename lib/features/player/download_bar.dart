@@ -351,6 +351,16 @@ class _DownloadTile extends ConsumerWidget {
             audioUrl: audioUrl,
           );
           ref.read(audioPlayerProvider.notifier).playTrack(track);
+        } else if (value == 'playNext') {
+          ref.read(audioPlayerProvider.notifier).playNext(
+            Track(id: trackId, title: title, artist: artist, audioUrl: audioUrl),
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('"$title" will play next'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
         } else if (value == 'addQueue') {
           ref.read(audioPlayerProvider.notifier).addToQueue(
             Track(id: trackId, title: title, artist: artist, audioUrl: audioUrl),
@@ -376,6 +386,7 @@ class _DownloadTile extends ConsumerWidget {
         }
       },
       itemBuilder: (context) => [
+        const PopupMenuItem(value: 'playNext', child: Text('Play next')),
         const PopupMenuItem(value: 'addQueue', child: Text('Add to queue')),
         const PopupMenuItem(value: 'addToPlaylist', child: Text('Add to playlist')),
         const PopupMenuItem(value: 'remove', child: Text('Remove from list')),

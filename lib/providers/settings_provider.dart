@@ -42,6 +42,20 @@ class SettingsState {
   }
 }
 
+/// Applies the persisted backend URL before the first frame. Startup fetches
+/// (genres, charts) otherwise race the async settings load inside
+/// [SettingsController] and fire against the stale default host, caching an
+/// error until the user taps Retry. Native only — on web the server host is
+/// derived from the page URL.
+Future<void> applyPersistedServerUrl() async {
+  if (kIsWeb) return;
+  final prefs = await SharedPreferences.getInstance();
+  final server = prefs.getString(SettingsController._kServer);
+  if (server != null && server.isNotEmpty) {
+    musicApi.setServerUrl(server);
+  }
+}
+
 class SettingsController extends StateNotifier<SettingsState> {
   SettingsController() : super(const SettingsState()) {
     _load();

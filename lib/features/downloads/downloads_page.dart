@@ -229,6 +229,24 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
           onSelected: (value) {
             if (value == 'play') {
               _playTrack(context, ref, dl, trackId);
+            } else if (value == 'playNext') {
+              final nextUrl = (!kIsWeb && dl.filePath != null)
+                  ? Uri.file(dl.filePath!).toString()
+                  : dl.audioUrl;
+              ref.read(audioPlayerProvider.notifier).playNext(
+                Track(
+                  id: trackId,
+                  title: dl.title,
+                  artist: dl.artist,
+                  audioUrl: nextUrl,
+                ),
+              );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('"${dl.title}" will play next'),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
             } else if (value == 'addQueue') {
               ref.read(audioPlayerProvider.notifier).addToQueue(
                 Track(id: trackId, title: dl.title, artist: dl.artist, audioUrl: dl.audioUrl),
@@ -254,6 +272,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
             }
           },
           itemBuilder: (context) => [
+            const PopupMenuItem(value: 'playNext', child: Text('Play next')),
             const PopupMenuItem(
               value: 'addQueue',
               child: Text('Add to queue'),

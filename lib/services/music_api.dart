@@ -14,7 +14,7 @@ String get defaultServerUrl {
     return 'http://${Uri.base.host}:5000';
   }
   if (defaultTargetPlatform == TargetPlatform.android) {
-    return 'http://192.168.1.11:5000';
+    return 'http://192.168.100.94:5000';
   }
   return 'http://localhost:5000';
 }

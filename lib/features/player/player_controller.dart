@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -173,6 +175,33 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     } else {
       await playTrack(track);
     }
+  }
+
+  /// Inserts a single track right after the current one so it plays next.
+  /// If nothing is playing yet, starts playing the track instead.
+  Future<void> playNext(Track track) async {
+    if (_audioSource != null && state.queue.isNotEmpty) {
+      final insertAt = (state.currentIndex + 1).clamp(0, state.queue.length);
+      await _audioSource!.insert(
+        insertAt,
+        AudioSource.uri(
+          Uri.parse(track.audioUrl),
+          tag: _mediaItem(track),
+        ),
+      );
+      final newQueue = List<Track>.from(state.queue)..insert(insertAt, track);
+      state = state.copyWith(queue: newQueue, hasNext: _player.hasNext);
+    } else {
+      await playTrack(track);
+    }
+  }
+
+  /// Plays [tracks] starting at a random index with shuffle mode enabled.
+  Future<void> shufflePlay(List<Track> tracks) async {
+    if (tracks.isEmpty) return;
+    setShuffleMode(true);
+    final start = Random().nextInt(tracks.length);
+    await playTrack(tracks[start], fromQueue: tracks, startIndex: start);
   }
 
   /// When the queue runs out, fetch tracks related to the last played song
