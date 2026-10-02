@@ -33,3 +33,16 @@ Future<void> deleteFile(String path) async {
     // Best effort — file may already be gone.
   }
 }
+
+/// Desktop uses the fixed app folder — no directory picker needed.
+bool get directoryPickerSupported => false;
+
+Future<String?> pickDirectory() async => null;
+
+Future<void> ensureDirectoryForDownload() async {}
+
+/// The folder downloads are written to (shown in Settings).
+Future<String?> directoryLabel() async {
+  final docs = await getApplicationDocumentsDirectory();
+  return p.join(docs.path, 'Musicap');
+}

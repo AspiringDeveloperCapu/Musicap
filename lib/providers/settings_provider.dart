@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_player/services/music_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Immutable app settings. Persisted to shared_preferences so they survive
@@ -9,6 +11,7 @@ class SettingsState {
   final double playbackSpeed;
   final String region;
   final String language;
+  final bool autoplayRelated;
   final bool loaded;
 
   const SettingsState({
@@ -16,6 +19,7 @@ class SettingsState {
     this.playbackSpeed = 1.0,
     this.region = 'US',
     this.language = 'en',
+    this.autoplayRelated = true,
     this.loaded = false,
   });
 
@@ -24,6 +28,7 @@ class SettingsState {
     double? playbackSpeed,
     String? region,
     String? language,
+    bool? autoplayRelated,
     bool? loaded,
   }) {
     return SettingsState(
@@ -31,6 +36,7 @@ class SettingsState {
       playbackSpeed: playbackSpeed ?? this.playbackSpeed,
       region: region ?? this.region,
       language: language ?? this.language,
+      autoplayRelated: autoplayRelated ?? this.autoplayRelated,
       loaded: loaded ?? this.loaded,
     );
   }
@@ -45,6 +51,8 @@ class SettingsController extends StateNotifier<SettingsState> {
   static const _kSpeed = 'settings.playbackSpeed';
   static const _kRegion = 'settings.region';
   static const _kLanguage = 'settings.language';
+  static const _kAutoplay = 'settings.autoplayRelated';
+  static const _kServer = 'settings.serverUrl';
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -53,8 +61,24 @@ class SettingsController extends StateNotifier<SettingsState> {
       playbackSpeed: prefs.getDouble(_kSpeed) ?? 1.0,
       region: prefs.getString(_kRegion) ?? 'US',
       language: prefs.getString(_kLanguage) ?? 'en',
+      autoplayRelated: prefs.getBool(_kAutoplay) ?? true,
       loaded: true,
     );
+    // Point the API at the saved backend. Native only — on web the server
+    // host is derived from the page URL.
+    if (!kIsWeb) {
+      final server = prefs.getString(_kServer);
+      if (server != null && server.isNotEmpty) {
+        musicApi.setServerUrl(server);
+      }
+    }
+  }
+
+  Future<void> setServerUrl(String url) async {
+    if (kIsWeb) return;
+    musicApi.setServerUrl(url);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kServer, musicApi.serverUrl);
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
@@ -79,6 +103,12 @@ class SettingsController extends StateNotifier<SettingsState> {
     state = state.copyWith(language: language);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kLanguage, language);
+  }
+
+  Future<void> setAutoplayRelated(bool enabled) async {
+    state = state.copyWith(autoplayRelated: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoplay, enabled);
   }
 
   static ThemeMode _themeFromString(String? value) {

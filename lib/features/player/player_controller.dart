@@ -1,25 +1,64 @@
+import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_player/audio_handler.dart';
 import 'package:music_player/models/track.dart';
+import 'package:music_player/providers/settings_provider.dart';
+import 'package:music_player/services/music_api.dart';
 
 /// Riverpod provider that exposes the audio player controller and its state
 /// to the entire widget tree.
 final audioPlayerProvider = StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
-  return AudioPlayerController();
+  return AudioPlayerController(ref);
 });
 
 /// Central audio player controller that manages playback, queue, shuffle,
 /// loop, and all player state. Uses just_audio's AudioPlayer under the hood
 /// and wraps it with a Riverpod StateNotifier for reactive UI updates.
+///
+/// On platforms with audio_service (Android/iOS) the controller drives the
+/// handler's shared player, so the media notification/lock screen reflects
+/// and controls playback. Elsewhere it owns a private player.
 class AudioPlayerController extends StateNotifier<AudioPlayerState> {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player;
+  final bool _ownsPlayer;
+
+  /// Provider ref — used to read settings (autoplay) on demand.
+  final Ref _ref;
 
   /// Reference to the current ConcatenatingAudioSource, used for queue
   /// operations like add, remove, and reorder.
   ConcatenatingAudioSource? _audioSource;
 
-  AudioPlayerController() : super(AudioPlayerState()) {
+  /// Guards against overlapping autoplay fetches.
+  bool _autoplayLoading = false;
+
+  AudioPlayerController(this._ref)
+      : _player = musicAudioHandler?.player ?? AudioPlayer(),
+        _ownsPlayer = musicAudioHandler == null,
+        super(AudioPlayerState()) {
     _initialize();
+  }
+
+  /// Builds a media-item tag so the audio_service notification can show
+  /// title/artist/artwork for the current track.
+  MediaItem _mediaItem(Track t) {
+    Uri? art;
+    final img = t.imageUrl;
+    if (img != null && img.isNotEmpty) {
+      try {
+        art = Uri.parse(img);
+      } catch (_) {
+        art = null;
+      }
+    }
+    return MediaItem(
+      id: t.id,
+      title: t.title,
+      artist: t.artist,
+      duration: t.duration,
+      artUri: art,
+    );
   }
 
   /// Sets up stream listeners on the AudioPlayer to keep AudioPlayerState
@@ -65,6 +104,10 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       );
       if (processingDone) {
         state = state.copyWith(isPlaying: false);
+        // Queue exhausted (loop off): pull related music and keep going.
+        if (!_player.hasNext && state.loopMode == LoopMode.off) {
+          _autoplayRelated();
+        }
       }
     });
 
@@ -85,10 +128,10 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     final index = startIndex ?? queue.indexOf(track);
 
     try {
-      // Convert each Track into an AudioSource URI with the track ID as a tag.
+      // Convert each Track into an AudioSource URI tagged with media metadata.
       final sources = queue.map((t) => AudioSource.uri(
         Uri.parse(t.audioUrl),
-        tag: t.id,
+        tag: _mediaItem(t),
       )).toList();
       final concatenating = ConcatenatingAudioSource(children: sources);
       _audioSource = concatenating;
@@ -124,11 +167,57 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     if (_audioSource != null) {
       await _audioSource!.add(AudioSource.uri(
         Uri.parse(track.audioUrl),
-        tag: track.id,
+        tag: _mediaItem(track),
       ));
       state = state.copyWith(queue: [...state.queue, track]);
     } else {
       await playTrack(track);
+    }
+  }
+
+  /// When the queue runs out, fetch tracks related to the last played song
+  /// (backend radio) and continue playback with them.
+  Future<void> _autoplayRelated() async {
+    final enabled =
+        _ref.read(settingsProvider.select((s) => s.autoplayRelated));
+    if (!enabled || _autoplayLoading) return;
+    if (state.queue.isEmpty) return;
+
+    final seedIndex = state.currentIndex.clamp(0, state.queue.length - 1);
+    final seed = state.queue[seedIndex];
+    if (seed.videoId == null) return;
+
+    _autoplayLoading = true;
+    try {
+      final related =
+          await musicApi.getRecommendations(videoId: seed.videoId!, limit: 10);
+      final existing = state.queue.map((t) => t.id).toSet();
+      final fresh = related.where((t) => !existing.contains(t.id)).toList();
+      if (fresh.isEmpty) return;
+
+      if (_audioSource == null) {
+        await playTrack(fresh.first,
+            fromQueue: [...state.queue, ...fresh],
+            startIndex: state.queue.length);
+        return;
+      }
+
+      for (final track in fresh) {
+        await _audioSource!.add(AudioSource.uri(
+          Uri.parse(track.audioUrl),
+          tag: _mediaItem(track),
+        ));
+      }
+      state = state.copyWith(queue: [...state.queue, ...fresh]);
+
+      // Step into the appended tail and resume.
+      await _player.seekToNext();
+      await _player.play();
+      _updateState();
+    } catch (_) {
+      // Related music unavailable — let playback end quietly.
+    } finally {
+      _autoplayLoading = false;
     }
   }
 
@@ -272,6 +361,16 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   }
 
   AudioPlayer get player => _player;
+
+  @override
+  void dispose() {
+    // Only dispose a player this controller created — the audio handler's
+    // shared player outlives the controller.
+    if (_ownsPlayer) {
+      _player.dispose();
+    }
+    super.dispose();
+  }
 
   /// Syncs the AudioPlayerState with the current AudioPlayer values.
   void _updateState() {

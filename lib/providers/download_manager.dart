@@ -159,6 +159,9 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
     if (state[track.id]?.status == DownloadStatus.downloaded) return;
     if (state[track.id]?.status == DownloadStatus.downloading) return;
 
+    // First download of the session may prompt for a save folder (web).
+    await ensureDirectoryForDownload();
+
     state = {
       ...state,
       track.id: DownloadState(

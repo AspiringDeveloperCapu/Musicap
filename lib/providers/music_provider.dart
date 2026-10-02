@@ -76,11 +76,11 @@ final trackRecommendationsProvider =
   return recs.where((t) => t.id != seedVideoId).toList();
 });
 
-/// Playlists inside one genre/mood category.
-final genrePlaylistsProvider =
-    FutureProvider.family<List<GenrePlaylist>, String>((ref, params) async {
+/// Songs and playlists inside one genre/mood category.
+final genreContentProvider =
+    FutureProvider.family<GenreContent, String>((ref, params) async {
   final language = ref.watch(settingsProvider.select((s) => s.language));
-  return musicApi.getGenrePlaylists(params, limit: 12, lang: language);
+  return musicApi.getGenreContent(params, limit: 12, lang: language);
 });
 
 /// Tracks of a playlist (genre playlists, recommendations into playlists).

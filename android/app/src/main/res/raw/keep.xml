@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- audio_service references its notification icons from Dart strings
+     (e.g. '@drawable/audio_service_stop'), which the resource shrinker
+     cannot see. Keep them so release builds don't strip them. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*" />

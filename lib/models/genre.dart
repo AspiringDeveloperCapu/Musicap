@@ -1,3 +1,5 @@
+import 'package:music_player/models/track.dart';
+
 /// A single genre/mood entry from YT Music's Genres & Moods page.
 class GenreItem {
   final String title;
@@ -50,4 +52,13 @@ class GenrePlaylist {
       thumbnail: json['thumbnail'],
     );
   }
+}
+
+/// Full content of a genre/mood category: directly playable songs plus
+/// playlists to browse.
+class GenreContent {
+  final List<Track> songs;
+  final List<GenrePlaylist> playlists;
+
+  const GenreContent({this.songs = const [], this.playlists = const []});
 }

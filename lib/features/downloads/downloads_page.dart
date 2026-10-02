@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/models/track.dart';
@@ -277,8 +278,9 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
     String trackId,
   ) {
     // Play the saved file directly when one exists (offline playback);
-    // otherwise fall back to the backend stream URL (web).
-    final audioUrl = dl.filePath != null
+    // on web the stored value is a folder label, not a local path, so use
+    // the backend stream URL there instead.
+    final audioUrl = (!kIsWeb && dl.filePath != null)
         ? Uri.file(dl.filePath!).toString()
         : dl.audioUrl;
     final track = Track(
@@ -304,7 +306,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
               title: e.value.title,
               artist: e.value.artist,
               imageUrl: e.value.imageUrl,
-              audioUrl: e.value.filePath != null
+              audioUrl: !kIsWeb && e.value.filePath != null
                   ? Uri.file(e.value.filePath!).toString()
                   : e.value.audioUrl,
               videoId: e.value.videoId,

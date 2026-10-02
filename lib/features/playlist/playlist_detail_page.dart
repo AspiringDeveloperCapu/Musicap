@@ -7,6 +7,7 @@ import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/features/player/mini_player.dart';
+import 'package:music_player/widgets/horizontal_row.dart';
 
 /// Detail view for a single playlist. Shows the playlist's tracks with options
 /// to play all, rename, or remove individual tracks.
@@ -55,14 +56,16 @@ class PlaylistDetailPage extends ConsumerWidget {
                   Icon(
                     Icons.music_off,
                     size: 64,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                    color: Theme.of(context).colorScheme.onSurface
+                        .withOpacity(0.3),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'No tracks in this playlist',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withOpacity(0.6),
                     ),
                   ),
                 ],
@@ -79,11 +82,13 @@ class PlaylistDetailPage extends ConsumerWidget {
                         child: ElevatedButton.icon(
                           onPressed: () {
                             if (playlist.tracks.isNotEmpty) {
-                              ref.read(audioPlayerProvider.notifier).playTrack(
-                                playlist.tracks.first,
-                                fromQueue: playlist.tracks,
-                                startIndex: 0,
-                              );
+                              ref
+                                  .read(audioPlayerProvider.notifier)
+                                  .playTrack(
+                                    playlist.tracks.first,
+                                    fromQueue: playlist.tracks,
+                                    startIndex: 0,
+                                  );
                             }
                           },
                           icon: const Icon(Icons.play_arrow),
@@ -93,8 +98,12 @@ class PlaylistDetailPage extends ConsumerWidget {
                       const SizedBox(width: 8),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-                          foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .secondaryContainer,
+                          foregroundColor: Theme.of(context)
+                              .colorScheme
+                              .onSecondaryContainer,
                         ),
                         onPressed: () {
                           final notDownloaded = playlist.tracks.where((t) {
@@ -103,13 +112,19 @@ class PlaylistDetailPage extends ConsumerWidget {
                           }).toList();
                           if (notDownloaded.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('All tracks already downloaded')),
+                              const SnackBar(
+                                content: Text('All tracks already downloaded'),
+                              ),
                             );
                           } else {
-                            ref.read(downloadManagerProvider.notifier).startDownloadAll(notDownloaded);
+                            ref
+                                .read(downloadManagerProvider.notifier)
+                                .startDownloadAll(notDownloaded);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('Downloading ${notDownloaded.length} track${notDownloaded.length > 1 ? 's' : ''}'),
+                                content: Text(
+                                  'Downloading ${notDownloaded.length} track${notDownloaded.length > 1 ? 's' : ''}',
+                                ),
                               ),
                             );
                           }
@@ -128,7 +143,13 @@ class PlaylistDetailPage extends ConsumerWidget {
                     itemCount: playlist.tracks.length,
                     itemBuilder: (context, index) {
                       final track = playlist.tracks[index];
-                      return _buildTrackTile(context, ref, playlist, track, index);
+                      return _buildTrackTile(
+                        context,
+                        ref,
+                        playlist,
+                        track,
+                        index,
+                      );
                     },
                   ),
                 ),
@@ -164,137 +185,116 @@ class PlaylistDetailPage extends ConsumerWidget {
       error: (_, __) => const SizedBox.shrink(),
       data: (recs) {
         final existingIds = playlist.tracks.map((t) => t.id).toSet();
-        final filtered =
-            recs.where((t) => !existingIds.contains(t.id)).toList();
+        final filtered = recs
+            .where((t) => !existingIds.contains(t.id))
+            .toList();
         if (filtered.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                'Recommended',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-            ),
-            SizedBox(
-              height: 190,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: filtered.length,
-                itemBuilder: (context, index) {
-                  final track = filtered[index];
-                  return HoverScale(
-                    onTap: () {
-                      ref.read(audioPlayerProvider.notifier).playTrack(
-                            track,
-                            fromQueue: filtered,
-                            startIndex: index,
-                          );
-                      ref
-                          .read(recentlyPlayedProvider.notifier)
-                          .addTrack(track);
-                    },
-                    child: Container(
-                      width: 140,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Stack(
-                            children: [
-                              Container(
-                                width: double.infinity,
-                                height: 120,
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .primaryContainer,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: track.imageUrl != null
-                                    ? Image.network(
-                                        track.imageUrl!,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, url, error) =>
-                                            const Center(
-                                          child: Icon(Icons.music_note,
-                                              size: 40),
-                                        ),
-                                      )
-                                    : const Center(
-                                        child: Icon(Icons.music_note,
-                                            size: 40),
+        return HorizontalRow(
+          title: 'Recommended',
+          height: 190,
+          itemCount: filtered.length,
+          itemBuilder: (context, index) {
+            final track = filtered[index];
+            return HoverScale(
+              onTap: () {
+                ref
+                    .read(audioPlayerProvider.notifier)
+                    .playTrack(track, fromQueue: filtered, startIndex: index);
+                ref.read(recentlyPlayedProvider.notifier).addTrack(track);
+              },
+              child: Container(
+                width: 140,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Stack(
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: track.imageUrl != null
+                              ? Image.network(
+                                  track.imageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, url, error) =>
+                                      const Center(
+                                        child: Icon(Icons.music_note, size: 40),
                                       ),
-                              ),
-                              // Add to this playlist.
-                              Positioned(
-                                bottom: 4,
-                                right: 4,
-                                child: Material(
-                                  color: Colors.black.withOpacity(0.55),
-                                  shape: const CircleBorder(),
-                                  child: InkWell(
-                                    customBorder: const CircleBorder(),
-                                    onTap: () {
-                                      final added = ref
-                                          .read(playlistManagerProvider
-                                              .notifier)
-                                          .addTrackToPlaylist(
-                                              playlist.id, track);
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(added
-                                              ? 'Added "${track.title}" to "${playlist.name}"'
-                                              : '"${track.title}" is already in this playlist'),
-                                          duration:
-                                              const Duration(seconds: 1),
-                                        ),
-                                      );
-                                    },
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(6),
-                                      child: Icon(Icons.add,
-                                          size: 18, color: Colors.white),
+                                )
+                              : const Center(
+                                  child: Icon(Icons.music_note, size: 40),
+                                ),
+                        ),
+                        // Add to this playlist.
+                        Positioned(
+                          bottom: 4,
+                          right: 4,
+                          child: Material(
+                            color: Colors.black.withOpacity(0.55),
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () {
+                                final added = ref
+                                    .read(playlistManagerProvider.notifier)
+                                    .addTrackToPlaylist(playlist.id, track);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      added
+                                          ? 'Added "${track.title}" to "${playlist.name}"'
+                                          : '"${track.title}" is already in this playlist',
                                     ),
+                                    duration: const Duration(seconds: 1),
                                   ),
+                                );
+                              },
+                              child: const Padding(
+                                padding: EdgeInsets.all(6),
+                                child: Icon(
+                                  Icons.add,
+                                  size: 18,
+                                  color: Colors.white,
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            track.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
                             ),
                           ),
-                          Text(
-                            track.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withOpacity(0.6),
-                            ),
-                          ),
-                        ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
                       ),
                     ),
-                  );
-                },
+                    Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withOpacity(0.6),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -326,11 +326,7 @@ class PlaylistDetailPage extends ConsumerWidget {
           ),
         ),
       ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         track.artist,
         maxLines: 1,
@@ -343,10 +339,9 @@ class PlaylistDetailPage extends ConsumerWidget {
         ),
         onSelected: (value) {
           if (value == 'remove') {
-            ref.read(playlistManagerProvider.notifier).removeTrackFromPlaylist(
-              playlist.id,
-              index,
-            );
+            ref
+                .read(playlistManagerProvider.notifier)
+                .removeTrackFromPlaylist(playlist.id, index);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Removed "${track.title}" from playlist'),
@@ -364,10 +359,7 @@ class PlaylistDetailPage extends ConsumerWidget {
           }
         },
         itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: 'download',
-            child: Text('Download'),
-          ),
+          const PopupMenuItem(value: 'download', child: Text('Download')),
           const PopupMenuItem(
             value: 'remove',
             child: Text('Remove from playlist'),
@@ -376,17 +368,19 @@ class PlaylistDetailPage extends ConsumerWidget {
       ),
       onTap: () {
         // Play this track starting from this position in the playlist.
-        ref.read(audioPlayerProvider.notifier).playTrack(
-          track,
-          fromQueue: playlist.tracks,
-          startIndex: index,
-        );
+        ref
+            .read(audioPlayerProvider.notifier)
+            .playTrack(track, fromQueue: playlist.tracks, startIndex: index);
       },
     );
   }
 
   /// Shows a dialog to rename the playlist.
-  void _showRenameDialog(BuildContext context, WidgetRef ref, Playlist playlist) {
+  void _showRenameDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist playlist,
+  ) {
     final controller = TextEditingController(text: playlist.name);
     showDialog(
       context: context,
@@ -395,15 +389,12 @@ class PlaylistDetailPage extends ConsumerWidget {
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Playlist name',
-          ),
+          decoration: const InputDecoration(hintText: 'Playlist name'),
           onSubmitted: (value) {
             if (value.trim().isNotEmpty) {
-              ref.read(playlistManagerProvider.notifier).renamePlaylist(
-                playlist.id,
-                value.trim(),
-              );
+              ref
+                  .read(playlistManagerProvider.notifier)
+                  .renamePlaylist(playlist.id, value.trim());
               Navigator.of(context).pop();
             }
           },
@@ -416,10 +407,9 @@ class PlaylistDetailPage extends ConsumerWidget {
           TextButton(
             onPressed: () {
               if (controller.text.trim().isNotEmpty) {
-                ref.read(playlistManagerProvider.notifier).renamePlaylist(
-                  playlist.id,
-                  controller.text.trim(),
-                );
+                ref
+                    .read(playlistManagerProvider.notifier)
+                    .renamePlaylist(playlist.id, controller.text.trim());
                 Navigator.of(context).pop();
               }
             },
@@ -431,7 +421,11 @@ class PlaylistDetailPage extends ConsumerWidget {
   }
 
   /// Shows a confirmation dialog before deleting the playlist.
-  void _confirmDeletePlaylist(BuildContext context, WidgetRef ref, Playlist playlist) {
+  void _confirmDeletePlaylist(
+    BuildContext context,
+    WidgetRef ref,
+    Playlist playlist,
+  ) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -444,7 +438,9 @@ class PlaylistDetailPage extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () {
-              ref.read(playlistManagerProvider.notifier).deletePlaylist(playlist.id);
+              ref
+                  .read(playlistManagerProvider.notifier)
+                  .deletePlaylist(playlist.id);
               Navigator.of(context).pop();
               Navigator.of(context).pop(); // Go back to library
             },

@@ -1,5 +1,12 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+
+/// The initialized audio handler (set by `AudioService.init` in main), or
+/// null on platforms where audio_service isn't available (web, Windows).
+/// The player inside this handler is the app's real player on platforms
+/// where the handler exists, so media notifications control it directly.
+MusicAudioHandler? musicAudioHandler;
 
 /// Audio handler for background/media session integration via audio_service.
 /// Bridges just_audio's AudioPlayer with the system's media notification controls
@@ -16,18 +23,24 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> _init() async {
     // Transform just_audio playback events into audio_service PlaybackState
     // and pipe them to the system media session.
-    _player.playbackEventStream.map(_transformEvent).pipe(playbackState);
+    _player.playbackEventStream.listen(
+      (event) => playbackState.add(_transformEvent(event)),
+      onError: (Object e) => debugPrint('audio stream error: $e'),
+    );
 
-    // Update the current media item (shown in notification) when the
-    // track index changes in the playlist.
-    _player.currentIndexStream.listen((index) {
-      if (index != null && _player.sequence != null) {
-        final sequence = _player.sequence!;
-        if (index < sequence.length) {
-          mediaItem.add(sequence[index].tag as MediaItem?);
-        }
-      }
-    });
+    // Update the current media item (shown in notification) when the track
+    // index or the playlist sequence changes. Both streams can fire in either
+    // order during load, so re-sync from either.
+    void syncMediaItem() {
+      final index = _player.currentIndex;
+      final seq = _player.sequence;
+      if (index == null || seq == null || index >= seq.length) return;
+      final tag = seq[index].tag;
+      mediaItem.add(tag is MediaItem ? tag : null);
+    }
+
+    _player.currentIndexStream.listen((_) => syncMediaItem());
+    _player.sequenceStream.listen((_) => syncMediaItem());
   }
 
   /// Loads and plays a single audio URL with optional metadata.

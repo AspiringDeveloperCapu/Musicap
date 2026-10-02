@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:audio_service/audio_service.dart';
@@ -18,6 +19,11 @@ import 'providers/download_manager.dart';
 import 'providers/settings_provider.dart';
 import 'models/genre.dart';
 import 'models/track.dart';
+import 'services/music_api.dart';
+import 'services/download_save_stub.dart'
+    if (dart.library.js_interop) 'package:music_player/services/download_save_web.dart'
+    if (dart.library.io) 'package:music_player/services/download_save_io.dart';
+import 'widgets/horizontal_row.dart';
 import 'audio_handler.dart';
 
 /// Regions supported by YouTube Music charts (used by Settings and Home).
@@ -692,13 +698,13 @@ class _HomePageState extends ConsumerState<HomePage> {
             ? sections.first.items
             : const <GenreItem>[];
         if (items.isEmpty) return const SizedBox.shrink();
-        return SizedBox(
-          height: 44,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: HorizontalRow(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemSpacing: 8,
             itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (context, index) {
               final item = items[index];
               return HoverScale(
@@ -733,32 +739,14 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// Builds a horizontally scrollable section with a title and track cards.
   Widget _buildSection({required String title, required List<Track> tracks}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        SizedBox(
-          height: 200,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: tracks.length,
-            itemBuilder: (context, index) {
-              final track = tracks[index];
-              return _buildTrackCard(track, fromQueue: tracks, width: 140);
-            },
-          ),
-        ),
-      ],
+    return HorizontalRow(
+      title: title,
+      height: 200,
+      itemCount: tracks.length,
+      itemBuilder: (context, index) {
+        final track = tracks[index];
+        return _buildTrackCard(track, fromQueue: tracks, width: 140);
+      },
     );
   }
 
@@ -923,43 +911,20 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// Builds a horizontally scrollable playlist section.
   Widget _buildPlaylistsSection(List<Playlist> playlists) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Your Playlists',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() {});
-                },
-                child: const Text('See all'),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          height: 140,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: playlists.length,
-            itemBuilder: (context, index) {
-              final playlist = playlists[index];
-              return _buildPlaylistCard(playlist);
-            },
-          ),
-        ),
-      ],
+    return HorizontalRow(
+      title: 'Your Playlists',
+      titleTrailing: TextButton(
+        onPressed: () {
+          setState(() {});
+        },
+        child: const Text('See all'),
+      ),
+      height: 140,
+      itemCount: playlists.length,
+      itemBuilder: (context, index) {
+        final playlist = playlists[index];
+        return _buildPlaylistCard(playlist);
+      },
     );
   }
 
@@ -1087,6 +1052,20 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
+  /// Display name of the download folder (web) or its path (desktop).
+  String? _downloadDir;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDownloadDir();
+  }
+
+  Future<void> _loadDownloadDir() async {
+    final label = await directoryLabel();
+    if (mounted) setState(() => _downloadDir = label);
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
@@ -1121,6 +1100,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle: Text('${settings.playbackSpeed} x'),
             onTap: () => _showPlaybackSpeedDialog(context),
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.playlist_play),
+            title: const Text('Autoplay Related Music'),
+            subtitle: const Text(
+              'When the queue ends, keep playing similar songs',
+            ),
+            value: settings.autoplayRelated,
+            onChanged: (value) =>
+                ref.read(settingsProvider.notifier).setAutoplayRelated(value),
+          ),
 
           const Divider(height: 1),
 
@@ -1139,10 +1128,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             onTap: () => _showLanguageDialog(context),
           ),
 
+          if (!kIsWeb) ...[
+            const Divider(height: 1),
+            _sectionHeader('Server'),
+            ListTile(
+              leading: const Icon(Icons.dns_outlined),
+              title: const Text('Backend Address'),
+              subtitle: Text(musicApi.serverUrl),
+              onTap: () async {
+                await _showServerDialog(context);
+                if (mounted) setState(() {});
+              },
+            ),
+          ],
+
           const Divider(height: 1),
 
           // Downloads section.
           _sectionHeader('Downloads'),
+          ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: const Text('Save downloads to'),
+            subtitle: Text(directoryPickerSupported
+                ? (_downloadDir ?? 'Browser default (tap to choose a folder)')
+                : (_downloadDir ?? 'App downloads folder')),
+            onTap: !directoryPickerSupported
+                ? null
+                : () async {
+                    final name = await pickDirectory();
+                    if (name != null) {
+                      setState(() => _downloadDir = name);
+                    }
+                  },
+          ),
           ListTile(
             leading: const Icon(Icons.delete_sweep, color: Colors.red),
             title: const Text('Clear All Downloads'),
@@ -1218,6 +1236,41 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _showServerDialog(BuildContext context) async {
+    final controller = TextEditingController(text: musicApi.serverUrl);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Backend Address'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'Server URL',
+            hintText: 'http://192.168.1.11:5000',
+            prefixIcon: Icon(Icons.dns_outlined),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (saved == true && controller.text.trim().isNotEmpty) {
+      await ref
+          .read(settingsProvider.notifier)
+          .setServerUrl(controller.text);
+    }
   }
 
   String _themeModeLabel(ThemeMode mode) {
@@ -1410,15 +1463,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await AudioService.init(
-    builder: () => MusicAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.example.music_player.channel.audio',
-      androidNotificationChannelName: 'Musicap',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-    ),
-  );
+  // Never let audio_service init brick startup — a failure here only means
+  // no background/notification controls.
+  try {
+    musicAudioHandler = await AudioService.init(
+      builder: () => MusicAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.example.music_player.channel.audio',
+        androidNotificationChannelName: 'Musicap',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      ),
+    );
+  } catch (e) {
+    debugPrint('AudioService.init failed: $e');
+  }
 
   runApp(
     const ProviderScope(

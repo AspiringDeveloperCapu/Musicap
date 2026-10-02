@@ -1,15 +1,49 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:music_player/models/genre.dart';
 import 'package:music_player/models/track.dart';
 
-const String baseUrl = 'http://localhost:5000';
+/// Default backend URL for the current platform.
+///
+/// On web we target port 5000 of whatever host served the page — this
+/// covers the dev server on localhost, the PC's LAN IP when the app is
+/// opened from a phone, and the backend-served production build alike.
+/// Android points at the PC on the LAN; desktop uses localhost.
+String get defaultServerUrl {
+  if (kIsWeb) {
+    return 'http://${Uri.base.host}:5000';
+  }
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return 'http://192.168.1.11:5000';
+  }
+  return 'http://localhost:5000';
+}
 
 class MusicApi {
+  String _serverUrl = defaultServerUrl;
+
   final Dio _dio = Dio(BaseOptions(
-    baseUrl: baseUrl,
+    baseUrl: defaultServerUrl,
     connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 30),
   ));
+
+  /// Current backend base URL.
+  String get serverUrl => _serverUrl;
+
+  /// Point the API at a different backend (persisted via Settings).
+  void setServerUrl(String url) {
+    var v = url.trim();
+    if (v.isEmpty) return;
+    if (!v.startsWith('http://') && !v.startsWith('https://')) {
+      v = 'http://$v';
+    }
+    while (v.endsWith('/')) {
+      v = v.substring(0, v.length - 1);
+    }
+    _serverUrl = v;
+    _dio.options.baseUrl = v;
+  }
 
   /// Search songs by query.
   Future<List<Track>> search(String query, {int limit = 20, String? lang}) async {
@@ -44,8 +78,8 @@ class MusicApi {
         .toList();
   }
 
-  /// Resolve a genre/mood params token into its playlists.
-  Future<List<GenrePlaylist>> getGenrePlaylists(
+  /// Get a genre/mood category's songs and playlists.
+  Future<GenreContent> getGenreContent(
     String params, {
     int limit = 12,
     String? lang,
@@ -55,10 +89,13 @@ class MusicApi {
       'limit': limit,
       if (lang != null) 'lang': lang,
     });
-    final results = response.data['results'] as List;
-    return results
+    final songs = (response.data['songs'] as List? ?? [])
+        .map((s) => _trackFromJson(Map<String, dynamic>.from(s)))
+        .toList();
+    final playlists = (response.data['playlists'] as List? ?? [])
         .map((p) => GenrePlaylist.fromJson(Map<String, dynamic>.from(p)))
         .toList();
+    return GenreContent(songs: songs, playlists: playlists);
   }
 
   /// Get the tracks of a playlist (used for genre playlists).
@@ -102,7 +139,7 @@ class MusicApi {
 
   /// Get the streaming URL for a track (proxied through our backend).
   String getStreamUrl(String videoId) {
-    return '$baseUrl/api/stream/$videoId';
+    return '$serverUrl/api/stream/$videoId';
   }
 
   /// Get song metadata.
