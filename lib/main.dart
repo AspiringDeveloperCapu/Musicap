@@ -950,9 +950,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ListTile(
             leading: const Icon(Icons.folder_outlined),
             title: const Text('Save downloads to'),
-            subtitle: Text(directoryPickerSupported
-                ? (_downloadDir ?? 'Browser default (tap to choose a folder)')
-                : (_downloadDir ?? 'App downloads folder')),
+            subtitle: Text(
+              _downloadDir ??
+                  (kIsWeb
+                      ? 'Browser default (tap to choose a folder)'
+                      : 'App downloads folder'),
+            ),
             onTap: !directoryPickerSupported
                 ? null
                 : () async {

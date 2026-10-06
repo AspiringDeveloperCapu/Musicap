@@ -15,6 +15,7 @@ class MiniPlayer extends ConsumerStatefulWidget {
 class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   bool _isDragging = false;
   double _dragValue = 0;
+  bool _showVolume = false;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +74,71 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               },
             ),
           ),
+
+          // Collapsible volume row — shown when the volume icon is tapped.
+          if (_showVolume)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(
+                      state.volume == 0
+                          ? Icons.volume_off
+                          : state.volume < 0.5
+                              ? Icons.volume_down
+                              : Icons.volume_up,
+                      size: 18,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+                    onPressed: () =>
+                        ref.read(audioPlayerProvider.notifier).toggleMute(),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderThemeData(
+                        trackHeight: 3,
+                        thumbShape:
+                            const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        overlayShape:
+                            const RoundSliderOverlayShape(overlayRadius: 12),
+                        activeTrackColor:
+                            Theme.of(context).colorScheme.primary,
+                        inactiveTrackColor:
+                            Theme.of(context).colorScheme.surfaceContainerHighest,
+                        thumbColor: Theme.of(context).colorScheme.primary,
+                      ),
+                      child: Slider(
+                        value: state.volume.clamp(0.0, 1.0),
+                        onChanged: (v) =>
+                            ref.read(audioPlayerProvider.notifier).setVolume(v),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      '${(state.volume * 100).round()}%',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Track info row — tapping navigates to full player.
           Padding(
             padding: const EdgeInsets.only(left: 8, right: 4, bottom: 8),
@@ -164,6 +230,27 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                             .read(audioPlayerProvider.notifier)
                             .seekToNext()
                         : null,
+                  ),
+                ),
+                // Volume toggle — shows/hides the volume slider row.
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: IconButton(
+                    icon: Icon(
+                      state.volume == 0
+                          ? Icons.volume_off
+                          : state.volume < 0.5
+                              ? Icons.volume_down
+                              : Icons.volume_up,
+                      size: 22,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(
+                              alpha: _showVolume ? 1.0 : 0.5),
+                    ),
+                    onPressed: () =>
+                        setState(() => _showVolume = !_showVolume),
                   ),
                 ),
                 // Close button.

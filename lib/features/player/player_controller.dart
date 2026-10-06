@@ -113,6 +113,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       }
     });
 
+    // Keep the UI volume control in sync with the player.
+    _player.volumeStream.listen((volume) {
+      state = state.copyWith(volume: volume);
+    });
+
     // Catch playback errors from the event stream.
     _player.playbackEventStream.listen(
       (_) {},
@@ -193,6 +198,25 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       state = state.copyWith(queue: newQueue, hasNext: _player.hasNext);
     } else {
       await playTrack(track);
+    }
+  }
+
+  /// Sets the playback volume (0.0 – 1.0).
+  Future<void> setVolume(double volume) async {
+    final v = volume.clamp(0.0, 1.0);
+    await _player.setVolume(v);
+    state = state.copyWith(volume: v);
+  }
+
+  double _lastAudibleVolume = 1.0;
+
+  /// Mutes (volume 0) or restores the previous audible volume.
+  Future<void> toggleMute() async {
+    if (state.volume > 0) {
+      _lastAudibleVolume = state.volume;
+      await setVolume(0);
+    } else {
+      await setVolume(_lastAudibleVolume > 0 ? _lastAudibleVolume : 1.0);
     }
   }
 
@@ -432,6 +456,7 @@ class AudioPlayerState {
   final String? currentUrl;
   final List<Track> queue;
   final String? error;
+  final double volume;
 
   AudioPlayerState({
     this.isPlaying = false,
@@ -448,6 +473,7 @@ class AudioPlayerState {
     this.currentUrl,
     this.queue = const [],
     this.error,
+    this.volume = 1.0,
   });
 
   AudioPlayerState copyWith({
@@ -465,6 +491,7 @@ class AudioPlayerState {
     String? currentUrl,
     List<Track>? queue,
     String? error,
+    double? volume,
   }) {
     return AudioPlayerState(
       isPlaying: isPlaying ?? this.isPlaying,
@@ -481,6 +508,7 @@ class AudioPlayerState {
       currentUrl: currentUrl ?? this.currentUrl,
       queue: queue ?? this.queue,
       error: error,
+      volume: volume ?? this.volume,
     );
   }
 }

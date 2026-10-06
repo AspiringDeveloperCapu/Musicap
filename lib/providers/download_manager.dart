@@ -25,6 +25,7 @@ class DownloadState {
   final DateTime? downloadedAt;
   final int? sizeBytes;
   final String? filePath;
+  final String? artPath;
 
   const DownloadState({
     this.status = DownloadStatus.notDownloaded,
@@ -37,6 +38,7 @@ class DownloadState {
     this.downloadedAt,
     this.sizeBytes,
     this.filePath,
+    this.artPath,
   });
 
   DownloadState copyWith({
@@ -50,6 +52,7 @@ class DownloadState {
     DateTime? downloadedAt,
     int? sizeBytes,
     String? filePath,
+    String? artPath,
   }) {
     return DownloadState(
       status: status ?? this.status,
@@ -62,6 +65,7 @@ class DownloadState {
       downloadedAt: downloadedAt ?? this.downloadedAt,
       sizeBytes: sizeBytes ?? this.sizeBytes,
       filePath: filePath ?? this.filePath,
+      artPath: artPath ?? this.artPath,
     );
   }
 
@@ -77,6 +81,7 @@ class DownloadState {
       'downloadedAt': downloadedAt?.millisecondsSinceEpoch,
       'sizeBytes': sizeBytes,
       'filePath': filePath,
+      'artPath': artPath,
     };
   }
 
@@ -97,6 +102,7 @@ class DownloadState {
           : null,
       sizeBytes: json['sizeBytes'],
       filePath: json['filePath'],
+      artPath: json['artPath'],
     );
   }
 }
@@ -154,6 +160,28 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
     return cleaned.isEmpty ? '${track.id}.mp3' : cleaned;
   }
 
+  /// Cover art filename derived from the audio filename.
+  String _artFilenameFor(Track track) =>
+      _filenameFor(track).replaceFirst(RegExp(r'\.mp3$'), '.jpg');
+
+  /// Fetches the cover image bytes and saves them next to the audio file.
+  /// Returns null when there is no image or the save fails (art is optional).
+  Future<String?> _saveArt(Track track) async {
+    final url = track.imageUrl;
+    if (url == null || url.isEmpty) return null;
+    try {
+      final response = await _dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) return null;
+      return await saveArtFile(bytes, _artFilenameFor(track));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Downloads a track with real progress reporting.
   Future<void> startDownload(Track track) async {
     if (state[track.id]?.status == DownloadStatus.downloaded) return;
@@ -194,8 +222,12 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
 
       if (state[track.id]?.status == DownloadStatus.canceled) return;
 
+      // Save cover art alongside the audio (runs while the file writes).
+      final artFuture = _saveArt(track);
+
       final bytes = response.data ?? <int>[];
       final path = await saveFile(bytes, _filenameFor(track));
+      final artPath = await artFuture;
 
       state = {
         ...state,
@@ -210,6 +242,7 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
           downloadedAt: DateTime.now(),
           sizeBytes: bytes.length,
           filePath: path,
+          artPath: artPath,
         ),
       };
       _save();
@@ -263,12 +296,17 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
     _save();
   }
 
-  /// Deletes the downloaded file and removes it from the list.
+  /// Deletes the downloaded file (and its saved cover art) and removes it
+  /// from the list.
   Future<void> deleteDownload(Track track) async {
     final entry = state[track.id];
     final path = entry?.filePath;
     if (path != null) {
       await deleteFile(path);
+    }
+    final artPath = entry?.artPath;
+    if (artPath != null) {
+      await deleteFile(artPath);
     }
     removeFromList(track.id);
   }

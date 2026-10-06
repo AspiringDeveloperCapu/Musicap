@@ -92,12 +92,15 @@ void confirmDeleteDownload(BuildContext context, WidgetRef ref, Track track) {
 
 /// Shared "more" popup menu for a track: Play next, Add to queue,
 /// Add to playlist, and Download / Delete download depending on state.
+/// When [onRemoveFromQueue] is set (player queue rows), a
+/// "Remove from queue" item is appended.
 class TrackMenuButton extends ConsumerWidget {
   final Track track;
   final double iconSize;
   final Color? iconColor;
   final EdgeInsetsGeometry padding;
   final BoxConstraints? constraints;
+  final VoidCallback? onRemoveFromQueue;
 
   const TrackMenuButton(
     this.track, {
@@ -106,6 +109,7 @@ class TrackMenuButton extends ConsumerWidget {
     this.iconColor,
     this.padding = EdgeInsets.zero,
     this.constraints,
+    this.onRemoveFromQueue,
   });
 
   @override
@@ -149,6 +153,8 @@ class TrackMenuButton extends ConsumerWidget {
             );
           case 'deleteDownload':
             confirmDeleteDownload(context, ref, track);
+          case 'remove':
+            onRemoveFromQueue?.call();
         }
       },
       itemBuilder: (context) => [
@@ -162,6 +168,11 @@ class TrackMenuButton extends ConsumerWidget {
           )
         else
           const PopupMenuItem(value: 'download', child: Text('Download')),
+        if (onRemoveFromQueue != null)
+          const PopupMenuItem(
+            value: 'remove',
+            child: Text('Remove from queue'),
+          ),
       ],
     );
   }

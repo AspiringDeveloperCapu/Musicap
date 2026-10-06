@@ -6,7 +6,9 @@ import 'package:web/web.dart' as web;
 
 /// `window.showDirectoryPicker` — not yet exposed by package:web.
 @JS('window.showDirectoryPicker')
-external JSPromise<web.FileSystemDirectoryHandle> _showDirectoryPicker();
+external JSPromise<web.FileSystemDirectoryHandle> _showDirectoryPicker([
+  JSAny? options,
+]);
 
 /// Property read used to feature-detect the API without calling it
 /// (reading an undefined JS property yields null instead of throwing).
@@ -25,12 +27,23 @@ bool _askedThisSession = false;
 /// Whether the File System Access API is available (Chromium browsers).
 bool get directoryPickerSupported => _showDirectoryPickerProperty != null;
 
+/// Whether we already re-asked after a previously chosen folder lost its
+/// grant (page reload or a new dev-server origin clears the permission).
+bool _reaskedThisSession = false;
+
 /// Ensures a save directory is available before the first download of the
-/// session, opening the folder picker if needed. If the user cancels,
-/// downloads continue to the browser's default download folder.
+/// session, opening the folder picker if needed. Re-prompts once when a
+/// folder chosen in the past has lost its grant, instead of silently
+/// falling back to the browser's default download location. If the user
+/// cancels, downloads continue to the browser's default download folder.
 Future<void> ensureDirectoryForDownload() async {
-  if (_directory != null || _askedThisSession) return;
+  if (_directory != null) return;
+  final prefs = await SharedPreferences.getInstance();
+  final staleGrant = prefs.getString(_kDirLabel) != null;
+  final shouldAsk = !_askedThisSession || (staleGrant && !_reaskedThisSession);
   _askedThisSession = true;
+  if (staleGrant) _reaskedThisSession = true;
+  if (!shouldAsk) return;
   await pickDirectory();
 }
 
@@ -39,7 +52,10 @@ Future<void> ensureDirectoryForDownload() async {
 Future<String?> pickDirectory() async {
   if (!directoryPickerSupported) return null;
   try {
-    final handle = await _showDirectoryPicker().toDart;
+    // Readwrite must be granted at pick time: asking for it later requires a
+    // live user gesture, which is long gone by the time the audio is saved.
+    final options = {'mode': 'readwrite'}.jsify();
+    final handle = await _showDirectoryPicker(options).toDart;
     _directory = handle;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kDirLabel, handle.name);
@@ -52,11 +68,14 @@ Future<String?> pickDirectory() async {
 
 /// Display name of the chosen folder. Persisted for display across
 /// sessions; the write permission itself lasts for the session, so a fresh
-/// pick is requested on the first download after a reload.
+/// pick is requested on the first download after a reload. When the label
+/// exists but the grant is gone, the text says so.
 Future<String?> directoryLabel() async {
   if (_directory != null) return _directory!.name;
   final prefs = await SharedPreferences.getInstance();
-  return prefs.getString(_kDirLabel);
+  final label = prefs.getString(_kDirLabel);
+  if (label == null) return null;
+  return '$label (access expired — tap to re-grant)';
 }
 
 /// Web implementation: writes the file directly into the user-chosen
@@ -98,6 +117,26 @@ Future<String?> saveFile(List<int> bytes, String filename) async {
     web.URL.revokeObjectURL(url);
   });
   return null;
+}
+
+/// Web implementation: writes cover art into the granted folder only.
+/// Returns null without triggering a browser download when no folder is
+/// granted (art is optional; audio already fell back to the browser).
+Future<String?> saveArtFile(List<int> bytes, String filename) async {
+  final dir = _directory;
+  if (dir == null) return null;
+  try {
+    final fileHandle = await dir
+        .getFileHandle(filename, web.FileSystemGetFileOptions(create: true))
+        .toDart;
+    final writable = await fileHandle.createWritable().toDart;
+    await writable.write(Uint8List.fromList(bytes).toJS).toDart;
+    await writable.close().toDart;
+    return '${dir.name}/$filename';
+  } catch (_) {
+    _directory = null;
+    return null;
+  }
 }
 
 /// The browser can't stat files — trust the persisted download history.

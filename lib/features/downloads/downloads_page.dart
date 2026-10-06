@@ -5,6 +5,9 @@ import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/features/player/player_controller.dart';
+import 'download_art_stub.dart'
+    if (dart.library.js_interop) 'download_art_web.dart'
+    if (dart.library.io) 'download_art_io.dart';
 
 /// Downloads page showing all downloaded songs with sort, storage info,
 /// swipe-to-delete, and tap-to-play.
@@ -182,27 +185,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
           child: SizedBox(
             width: 44,
             height: 44,
-            child: dl.imageUrl != null
-                ? Image.network(
-                    dl.imageUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, url, error) => Container(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      child: Icon(
-                        Icons.music_note,
-                        size: 22,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  )
-                : Container(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    child: Icon(
-                      Icons.music_note,
-                      size: 22,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
+            child: buildDownloadArt(context, dl),
           ),
         ),
         title: Text(

@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/providers/download_manager.dart';
 import 'package:music_player/models/track.dart';
+import 'package:music_player/widgets/track_menu.dart';
 
 /// Full-screen "Now Playing" page. Shows album art, track info, a seek bar,
 /// playback controls, shuffle/loop toggles, and a reorderable queue list.
@@ -14,6 +15,10 @@ class PlayerPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(audioPlayerProvider);
+    final currentTrack = state.queue.isNotEmpty &&
+            state.currentIndex < state.queue.length
+        ? state.queue[state.currentIndex]
+        : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -45,18 +50,29 @@ class PlayerPage extends ConsumerWidget {
           ),
           const SizedBox(height: 32),
 
-          // Track title.
+          // Track title, with the shared track menu for the current song.
           Center(
-            child: Text(
-              state.currentTitle.isNotEmpty ? state.currentTitle : 'No Track',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    state.currentTitle.isNotEmpty ? state.currentTitle : 'No Track',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (currentTrack != null) ...[
+                  const SizedBox(width: 4),
+                  TrackMenuButton(currentTrack, iconSize: 22),
+                ],
+              ],
             ),
           ),
           const SizedBox(height: 4),
@@ -160,6 +176,62 @@ class PlayerPage extends ConsumerWidget {
             ],
           ),
 
+          // Volume adjuster — mute icon (tap to toggle) + slider + percentage.
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: Icon(
+                  state.volume == 0
+                      ? Icons.volume_off
+                      : state.volume < 0.5
+                          ? Icons.volume_down
+                          : Icons.volume_up,
+                  size: 20,
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+                onPressed: () =>
+                    ref.read(audioPlayerProvider.notifier).toggleMute(),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                    activeTrackColor: Theme.of(context).colorScheme.primary,
+                    inactiveTrackColor:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    thumbColor: Theme.of(context).colorScheme.primary,
+                  ),
+                  child: Slider(
+                    value: state.volume.clamp(0.0, 1.0),
+                    onChanged: (v) =>
+                        ref.read(audioPlayerProvider.notifier).setVolume(v),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 42,
+                child: Text(
+                  '${(state.volume * 100).round()}%',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
           // Up Next queue section — only shown when there are tracks in the queue.
           if (state.queue.isNotEmpty) ...[
             const SizedBox(height: 32),
@@ -251,28 +323,20 @@ class PlayerPage extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 12),
                     ),
-                    // Trailing: 3-dot menu (remove) + drag handle for reordering.
+                    // Trailing: shared track menu (incl. remove) + drag handle.
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        PopupMenuButton<String>(
-                          icon: Icon(
-                            Icons.more_vert,
-                            size: 20,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                          ),
-                          padding: EdgeInsets.zero,
-                          onSelected: (value) {
-                            if (value == 'remove') {
-                              ref.read(audioPlayerProvider.notifier).removeFromQueue(index);
-                            }
+                        TrackMenuButton(
+                          track,
+                          iconSize: 20,
+                          iconColor:
+                              Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                          onRemoveFromQueue: () {
+                            ref
+                                .read(audioPlayerProvider.notifier)
+                                .removeFromQueue(index);
                           },
-                          itemBuilder: (context) => [
-                            const PopupMenuItem(
-                              value: 'remove',
-                              child: Text('Remove from queue'),
-                            ),
-                          ],
                         ),
                         const SizedBox(width: 4),
                         ReorderableDragStartListener(
