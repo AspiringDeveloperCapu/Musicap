@@ -67,6 +67,13 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// in sync with the underlying player's position, duration, current index,
   /// and playback state.
   Future<void> _initialize() async {
+    // Let notification/lock-screen skips past the end of the queue pull
+    // related music (same fill used when the queue finishes naturally).
+    final handler = musicAudioHandler;
+    if (handler != null) {
+      handler.onQueueExhausted = () => _autoplayRelated();
+    }
+
     // Update current position as the track plays.
     _player.positionStream.listen((position) {
       state = state.copyWith(currentPosition: position);
@@ -229,7 +236,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   }
 
   /// When the queue runs out, fetch tracks related to the last played song
-  /// (backend radio) and continue playback with them.
+  /// (backend radio) and continue playback with them. Falls back to the
+  /// charts feed when the seed is a demo track or the radio request fails.
   Future<void> _autoplayRelated() async {
     final enabled =
         _ref.read(settingsProvider.select((s) => s.autoplayRelated));
@@ -238,15 +246,41 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
     final seedIndex = state.currentIndex.clamp(0, state.queue.length - 1);
     final seed = state.queue[seedIndex];
-    if (seed.videoId == null) return;
 
     _autoplayLoading = true;
     try {
-      final related =
-          await musicApi.getRecommendations(videoId: seed.videoId!, limit: 10);
-      final existing = state.queue.map((t) => t.id).toSet();
-      final fresh = related.where((t) => !existing.contains(t.id)).toList();
+      var fresh = const <Track>[];
+      if (seed.videoId != null) {
+        try {
+          final related = await musicApi.getRecommendations(
+              videoId: seed.videoId!, limit: 10);
+          final existing = state.queue.map((t) => t.id).toSet();
+          fresh = related.where((t) => !existing.contains(t.id)).toList();
+        } catch (_) {
+          // Demo/invalid seed or radio error — try the charts feed.
+        }
+      }
+      if (fresh.isEmpty) {
+        try {
+          final charts = await musicApi.getCharts(limit: 10);
+          final existing = state.queue.map((t) => t.id).toSet();
+          fresh = charts
+              .where((t) => !existing.contains(t.id))
+              .take(10)
+              .toList();
+        } catch (_) {
+          // No fallback available — let playback end quietly.
+        }
+      }
       if (fresh.isEmpty) return;
+
+      // While the player is still in its ended state with playback flag on,
+      // ExoPlayer auto-jumps into whatever is appended next — combined with
+      // the explicit seek below that would skip the first fresh track.
+      // Freeze first so the seek is the only step.
+      if (_player.playing) {
+        await _player.pause();
+      }
 
       if (_audioSource == null) {
         await playTrack(fresh.first,
@@ -255,12 +289,14 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         return;
       }
 
-      for (final track in fresh) {
-        await _audioSource!.add(AudioSource.uri(
-          Uri.parse(track.audioUrl),
-          tag: _mediaItem(track),
-        ));
-      }
+      // Append in one batched timeline change instead of a burst of
+      // single-item updates, keeping media-session/notification churn low.
+      await _audioSource!.addAll(fresh
+          .map((track) => AudioSource.uri(
+                Uri.parse(track.audioUrl),
+                tag: _mediaItem(track),
+              ))
+          .toList());
       state = state.copyWith(queue: [...state.queue, ...fresh]);
 
       // Step into the appended tail and resume.
@@ -294,11 +330,17 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           currentUrl: track.audioUrl,
         );
       } else {
-        // Adjust currentIndex if a track before it was removed.
+        // Adjust currentIndex if a track before it was removed, and re-sync
+        // the displayed track — the index stream fires while the old queue is
+        // still in state, which would otherwise leave a stale title behind.
         final newIndex = state.currentIndex > index ? state.currentIndex - 1 : state.currentIndex;
+        final track = newQueue[newIndex.clamp(0, newQueue.length - 1)];
         state = state.copyWith(
           queue: newQueue,
           currentIndex: newIndex,
+          currentTitle: track.title,
+          currentArtist: track.artist,
+          currentUrl: track.audioUrl,
         );
       }
     }
@@ -328,9 +370,15 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     int currentIdx = newQueue.indexWhere((t) => t.id == currentTrackId);
     if (currentIdx == -1) currentIdx = state.currentIndex;
 
+    // Re-sync the displayed track in case the index stream fired mid-move
+    // while the old queue was still in state.
+    final current = newQueue[currentIdx.clamp(0, newQueue.length - 1)];
     state = state.copyWith(
       queue: newQueue,
       currentIndex: currentIdx,
+      currentTitle: current.title,
+      currentArtist: current.artist,
+      currentUrl: current.audioUrl,
     );
   }
 
@@ -372,12 +420,21 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _updateState();
   }
 
-  /// Skips to the next track in the queue, if one exists.
+  /// Skips to the next track in the queue. When the queue is exhausted,
+  /// pulls related music first so Next keeps working (same as when the
+  /// queue finishes naturally).
   Future<void> seekToNext() async {
     if (_player.hasNext) {
       await _player.seekToNext();
       _updateState();
+      return;
     }
+    final before = _player.currentIndex;
+    await _autoplayRelated();
+    if (_player.currentIndex == before && _player.hasNext) {
+      await _player.seekToNext();
+    }
+    _updateState();
   }
 
   /// Seeks to the previous track, or restarts the current track if more

@@ -121,8 +121,6 @@ class PlayerPage extends ConsumerWidget {
           // Main playback controls: previous, play/pause, next.
           _PlaybackControls(
             isPlaying: state.isPlaying,
-            hasNext: state.hasNext,
-            hasPrevious: state.hasPrevious,
             onPlayPause: () {
               ref.read(audioPlayerProvider.notifier).playOrPause();
             },
@@ -532,16 +530,12 @@ class _InteractiveSeekBarState extends State<_InteractiveSeekBar> {
 /// Row of playback control buttons: previous, play/pause, and next.
 class _PlaybackControls extends StatelessWidget {
   final bool isPlaying;
-  final bool hasNext;
-  final bool hasPrevious;
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
   final VoidCallback onPrevious;
 
   const _PlaybackControls({
     required this.isPlaying,
-    required this.hasNext,
-    required this.hasPrevious,
     required this.onPlayPause,
     required this.onNext,
     required this.onPrevious,
@@ -554,7 +548,7 @@ class _PlaybackControls extends StatelessWidget {
       children: [
         _ControlButton(
           icon: Icons.skip_previous,
-          onPressed: hasPrevious ? onPrevious : null,
+          onPressed: onPrevious,
           label: 'Prev',
         ),
         const SizedBox(width: 24),
@@ -567,7 +561,7 @@ class _PlaybackControls extends StatelessWidget {
         const SizedBox(width: 24),
         _ControlButton(
           icon: Icons.skip_next,
-          onPressed: hasNext ? onNext : null,
+          onPressed: onNext,
           label: 'Next',
         ),
       ],

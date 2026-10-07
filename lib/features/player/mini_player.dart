@@ -193,16 +193,12 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                 ),
                 // Playback controls.
                 MouseRegion(
-                  cursor: state.hasPrevious
-                      ? SystemMouseCursors.click
-                      : SystemMouseCursors.basic,
+                  cursor: SystemMouseCursors.click,
                   child: IconButton(
                     icon: const Icon(Icons.skip_previous, size: 24),
-                    onPressed: state.hasPrevious
-                        ? () => ref
-                            .read(audioPlayerProvider.notifier)
-                            .seekToPrevious()
-                        : null,
+                    onPressed: () => ref
+                        .read(audioPlayerProvider.notifier)
+                        .seekToPrevious(),
                   ),
                 ),
                 MouseRegion(
@@ -220,16 +216,12 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                   ),
                 ),
                 MouseRegion(
-                  cursor: state.hasNext
-                      ? SystemMouseCursors.click
-                      : SystemMouseCursors.basic,
+                  cursor: SystemMouseCursors.click,
                   child: IconButton(
                     icon: const Icon(Icons.skip_next, size: 24),
-                    onPressed: state.hasNext
-                        ? () => ref
-                            .read(audioPlayerProvider.notifier)
-                            .seekToNext()
-                        : null,
+                    onPressed: () => ref
+                        .read(audioPlayerProvider.notifier)
+                        .seekToNext(),
                   ),
                 ),
                 // Volume toggle — shows/hides the volume slider row.

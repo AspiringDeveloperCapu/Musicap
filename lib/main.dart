@@ -716,7 +716,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       title: 'Your Playlists',
       titleTrailing: TextButton(
         onPressed: () {
-          setState(() {});
+          Navigator.pushNamed(context, '/playlist');
         },
         child: const Text('See all'),
       ),
@@ -775,19 +775,26 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
-                    onSelected: (value) {
-                      if (value == 'addAllQueue') {
-                        for (final track in playlist.tracks) {
-                          ref.read(audioPlayerProvider.notifier).addToQueue(track);
-                        }
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Added ${playlist.tracks.length} tracks to queue'),
-                            duration: const Duration(seconds: 1),
-                          ),
-                        );
-                      }
-                    },
+                onSelected: (value) async {
+                  if (value == 'addAllQueue') {
+                    // Await each add: a fire-and-forget loop lets the first
+                    // track's playTrack (started when the queue is empty)
+                    // overwrite the state written by later appends, leaving
+                    // the queue list out of sync with the player.
+                    for (final track in playlist.tracks) {
+                      await ref
+                          .read(audioPlayerProvider.notifier)
+                          .addToQueue(track);
+                    }
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Added ${playlist.tracks.length} tracks to queue'),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  }
+                },
                     itemBuilder: (context) => [
                       const PopupMenuItem(
                         value: 'addAllQueue',

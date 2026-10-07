@@ -14,6 +14,11 @@ MusicAudioHandler? musicAudioHandler;
 class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
+  /// Set by the player controller. Called when a skip finds no next track:
+  /// fills the queue with related music (which appends and steps into the
+  /// new tracks itself). Null when the controller isn't available.
+  Future<void> Function()? onQueueExhausted;
+
   MusicAudioHandler() {
     _init();
   }
@@ -36,22 +41,35 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
       final seq = _player.sequence;
       if (index == null || seq == null || index >= seq.length) return;
       final tag = seq[index].tag;
-      mediaItem.add(tag is MediaItem ? tag : null);
+      final item = tag is MediaItem ? tag : null;
+      // just_audio can emit index/sequence events again right after a stop,
+      // for the track that was just stopped. Re-adding the same item makes
+      // audio_service call setMetadata, whose delayed updateNotification
+      // (posted onto the Java main thread) runs after stop() already canceled
+      // the notification and re-posts it, leaving it stuck on screen.
+      if (item == _lastMediaItem) return;
+      _lastMediaItem = item;
+      mediaItem.add(item);
     }
 
     _player.currentIndexStream.listen((_) => syncMediaItem());
     _player.sequenceStream.listen((_) => syncMediaItem());
   }
 
+  /// The last media item pushed to the system, used to skip redundant pushes.
+  MediaItem? _lastMediaItem;
+
   /// Loads and plays a single audio URL with optional metadata.
   Future<void> loadUrl(String url, {String? title, String? artist}) async {
     await _player.setUrl(url);
-    mediaItem.add(MediaItem(
+    final item = MediaItem(
       id: url,
       title: title ?? 'Unknown Title',
       artist: artist ?? 'Unknown Artist',
       duration: _player.duration,
-    ));
+    );
+    _lastMediaItem = item;
+    mediaItem.add(item);
   }
 
   /// Loads a list of audio URLs as a playlist and starts from [startIndex].
@@ -77,7 +95,23 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> seek(Duration position) => _player.seek(position);
 
   @override
-  Future<void> skipToNext() => _player.seekToNext();
+  Future<void> skipToNext() async {
+    if (_player.hasNext) {
+      await _player.seekToNext();
+      return;
+    }
+    // Queue exhausted: pull related music so the notification/lock-screen
+    // skip buttons keep working instead of silently doing nothing.
+    final fill = onQueueExhausted;
+    if (fill == null) return;
+    final before = _player.currentIndex;
+    await fill();
+    // The fill steps into the appended tracks itself; if it only appended
+    // (defensive), step in here.
+    if (_player.currentIndex == before && _player.hasNext) {
+      await _player.seekToNext();
+    }
+  }
 
   @override
   Future<void> skipToPrevious() => _player.seekToPrevious();
