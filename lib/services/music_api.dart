@@ -45,6 +45,24 @@ class MusicApi {
     _dio.options.baseUrl = v;
   }
 
+  /// Pings the backend's health endpoint. Returns true when the server
+  /// responds with its expected payload; false on any network/HTTP error.
+  Future<bool> checkHealth() async {
+    try {
+      final response = await _dio.get(
+        '/api/health',
+        options: Options(
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+      return response.statusCode == 200 &&
+          response.data is Map &&
+          response.data['status'] == 'ok';
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Search songs by query.
   Future<List<Track>> search(String query, {int limit = 20, String? lang}) async {
     final response = await _dio.get('/api/search', queryParameters: {

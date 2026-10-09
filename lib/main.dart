@@ -863,15 +863,45 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   /// Display name of the download folder (web) or its path (desktop).
   String? _downloadDir;
 
+  /// Backend reachability: null = not checked yet, true/false after a ping.
+  bool? _serverOnline;
+  bool _checkingServer = false;
+
   @override
   void initState() {
     super.initState();
     _loadDownloadDir();
+    _checkServer();
   }
 
   Future<void> _loadDownloadDir() async {
     final label = await directoryLabel();
     if (mounted) setState(() => _downloadDir = label);
+  }
+
+  /// Whether a failed startup ping already scheduled its one-shot retry.
+  bool _serverRetryScheduled = false;
+
+  /// Pings the backend's /api/health endpoint and stores the result.
+  ///
+  /// A failure right after a cold launch is often just the OS bringing up
+  /// networking, so schedule a single delayed retry to self-heal.
+  Future<void> _checkServer() async {
+    if (_checkingServer) return;
+    setState(() => _checkingServer = true);
+    final ok = await musicApi.checkHealth();
+    if (!mounted) return;
+    setState(() {
+      _serverOnline = ok;
+      _checkingServer = false;
+    });
+    if (!ok && !_serverRetryScheduled) {
+      _serverRetryScheduled = true;
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (mounted && _serverOnline == false) {
+        await _checkServer();
+      }
+    }
   }
 
   @override
@@ -940,12 +970,27 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             const Divider(height: 1),
             _sectionHeader('Server'),
             ListTile(
-              leading: const Icon(Icons.dns_outlined),
+              leading: _serverStatusIcon(),
               title: const Text('Backend Address'),
-              subtitle: Text(musicApi.serverUrl),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(musicApi.serverUrl),
+                  const SizedBox(height: 2),
+                  _serverStatusText(),
+                ],
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.refresh, size: 20),
+                tooltip: 'Check connection',
+                onPressed: _checkingServer ? null : _checkServer,
+              ),
               onTap: () async {
                 await _showServerDialog(context);
-                if (mounted) setState(() {});
+                if (mounted) {
+                  setState(() {});
+                  _checkServer();
+                }
               },
             ),
           ],
@@ -1032,6 +1077,42 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Leading icon for the Backend Address tile: colored by reachability.
+  Widget _serverStatusIcon() {
+    if (_checkingServer) {
+      return const SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    if (_serverOnline == null) {
+      return const Icon(Icons.dns_outlined);
+    }
+    return Icon(
+      Icons.dns_outlined,
+      color: _serverOnline! ? Colors.green : Colors.red,
+    );
+  }
+
+  /// Status line under the backend URL.
+  Widget _serverStatusText() {
+    final (label, color) = _checkingServer
+        ? ('Checking connection…', Colors.grey)
+        : _serverOnline == null
+            ? ('Not checked yet', Colors.grey)
+            : _serverOnline!
+                ? ('Connected', Colors.green)
+                : ('Cannot reach server', Colors.red);
+    return Row(
+      children: [
+        Icon(Icons.circle, size: 8, color: color),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(fontSize: 12, color: color)),
+      ],
     );
   }
 
