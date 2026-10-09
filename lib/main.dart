@@ -966,34 +966,32 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             onTap: () => _showLanguageDialog(context),
           ),
 
-          if (!kIsWeb) ...[
-            const Divider(height: 1),
-            _sectionHeader('Server'),
-            ListTile(
-              leading: _serverStatusIcon(),
-              title: const Text('Backend Address'),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(musicApi.serverUrl),
-                  const SizedBox(height: 2),
-                  _serverStatusText(),
-                ],
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.refresh, size: 20),
-                tooltip: 'Check connection',
-                onPressed: _checkingServer ? null : _checkServer,
-              ),
-              onTap: () async {
-                await _showServerDialog(context);
-                if (mounted) {
-                  setState(() {});
-                  _checkServer();
-                }
-              },
+          const Divider(height: 1),
+          _sectionHeader('Server'),
+          ListTile(
+            leading: _serverStatusIcon(),
+            title: const Text('Backend Address'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(musicApi.serverUrl),
+                const SizedBox(height: 2),
+                _serverStatusText(),
+              ],
             ),
-          ],
+            trailing: IconButton(
+              icon: const Icon(Icons.refresh, size: 20),
+              tooltip: 'Check connection',
+              onPressed: _checkingServer ? null : _checkServer,
+            ),
+            onTap: () async {
+              await _showServerDialog(context);
+              if (mounted) {
+                setState(() {});
+                _checkServer();
+              }
+            },
+          ),
 
           const Divider(height: 1),
 

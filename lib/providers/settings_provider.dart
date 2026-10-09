@@ -89,8 +89,11 @@ class SettingsController extends StateNotifier<SettingsState> {
   }
 
   Future<void> setServerUrl(String url) async {
-    if (kIsWeb) return;
     musicApi.setServerUrl(url);
+    // On web the default URL is derived from the page host; an override
+    // applies for the session only so a stale dev URL can't stick to the
+    // deployed site via localStorage.
+    if (kIsWeb) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kServer, musicApi.serverUrl);
   }
