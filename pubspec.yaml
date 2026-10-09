@@ -33,6 +33,7 @@ dependencies:
 
   # Audio player for Flutter frontend
   just_audio: ^0.9.31
+  audio_service: ^0.18.17
 
 # State management
   riverpod: ^2.6.1
@@ -40,6 +41,15 @@ dependencies:
 
   # UI helper widgets
   flutter_svg: ^2.0.7
+
+  # UUID generation for playlist IDs
+  uuid: ^4.2.1
+
+  # File download and local storage
+  dio: ^5.4.0
+  path_provider: ^2.1.2
+  path: ^1.9.0
+  url_launcher: ^6.2.0
 
   # Image caching
   cached_network_image: ^3.3.0
