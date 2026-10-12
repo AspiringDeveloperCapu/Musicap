@@ -51,6 +51,10 @@ dependencies:
   path: ^1.9.0
   url_launcher: ^6.2.0
 
+  # Device-side YouTube stream URL resolution (hybrid architecture:
+  # metadata from the backend, audio streams resolved in-app)
+  youtube_explode_dart: ^3.1.0
+
   # Local persistence for settings, playlists, download history
   shared_preferences: ^2.5.0
 

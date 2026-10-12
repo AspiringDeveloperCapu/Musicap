@@ -5,13 +5,20 @@ import 'package:music_player/models/track.dart';
 
 /// Default backend URL for the current platform.
 ///
-/// On web we target port 5000 of whatever host served the page — this
-/// covers the dev server on localhost, the PC's LAN IP when the app is
-/// opened from a phone, and the backend-served production build alike.
+/// On web, a page served over HTTPS (production, e.g. behind Render) serves
+/// the app and the API from the same origin — use that origin directly.
+/// Over plain HTTP (Flutter dev server, local static server) the page isn't
+/// the backend, so target port 5000 of whatever host served the page — this
+/// covers dev on localhost, the PC's LAN IP when opened from a phone, and
+/// the backend-served production build alike.
 /// Android points at the PC on the LAN; desktop uses localhost.
 String get defaultServerUrl {
   if (kIsWeb) {
-    return 'http://${Uri.base.host}:5000';
+    final base = Uri.base;
+    if (base.scheme == 'https' || base.port == 5000) {
+      return base.origin;
+    }
+    return 'http://${base.host}:5000';
   }
   if (defaultTargetPlatform == TargetPlatform.android) {
     return 'http://192.168.100.94:5000';

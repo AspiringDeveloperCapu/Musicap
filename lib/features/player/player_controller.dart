@@ -7,6 +7,7 @@ import 'package:music_player/audio_handler.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/settings_provider.dart';
 import 'package:music_player/services/music_api.dart';
+import 'package:music_player/services/stream_resolver.dart';
 
 /// Riverpod provider that exposes the audio player controller and its state
 /// to the entire widget tree.
@@ -142,11 +143,16 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     final index = startIndex ?? queue.indexOf(track);
 
     try {
-      // Convert each Track into an AudioSource URI tagged with media metadata.
-      final sources = queue.map((t) => AudioSource.uri(
-        Uri.parse(t.audioUrl),
-        tag: _mediaItem(t),
-      )).toList();
+      // Resolve stream URLs device-first (backend fallback built in),
+      // then convert each Track into an AudioSource tagged with metadata.
+      final urls = await StreamResolver.instance.resolveAll(queue);
+      final sources = [
+        for (var i = 0; i < queue.length; i++)
+          AudioSource.uri(
+            Uri.parse(urls[i]),
+            tag: _mediaItem(queue[i]),
+          ),
+      ];
       final concatenating = ConcatenatingAudioSource(children: sources);
       _audioSource = concatenating;
 
@@ -179,8 +185,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// If nothing is playing yet, starts playing the track instead.
   Future<void> addToQueue(Track track) async {
     if (_audioSource != null) {
+      final url = await StreamResolver.instance.resolve(track);
       await _audioSource!.add(AudioSource.uri(
-        Uri.parse(track.audioUrl),
+        Uri.parse(url),
         tag: _mediaItem(track),
       ));
       state = state.copyWith(queue: [...state.queue, track]);
@@ -194,10 +201,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   Future<void> playNext(Track track) async {
     if (_audioSource != null && state.queue.isNotEmpty) {
       final insertAt = (state.currentIndex + 1).clamp(0, state.queue.length);
+      final url = await StreamResolver.instance.resolve(track);
       await _audioSource!.insert(
         insertAt,
         AudioSource.uri(
-          Uri.parse(track.audioUrl),
+          Uri.parse(url),
           tag: _mediaItem(track),
         ),
       );
@@ -291,12 +299,14 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
       // Append in one batched timeline change instead of a burst of
       // single-item updates, keeping media-session/notification churn low.
-      await _audioSource!.addAll(fresh
-          .map((track) => AudioSource.uri(
-                Uri.parse(track.audioUrl),
-                tag: _mediaItem(track),
-              ))
-          .toList());
+      final urls = await StreamResolver.instance.resolveAll(fresh);
+      await _audioSource!.addAll([
+        for (var i = 0; i < fresh.length; i++)
+          AudioSource.uri(
+            Uri.parse(urls[i]),
+            tag: _mediaItem(fresh[i]),
+          ),
+      ]);
       state = state.copyWith(queue: [...state.queue, ...fresh]);
 
       // Step into the appended tail and resume.

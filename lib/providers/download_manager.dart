@@ -6,6 +6,7 @@ import 'package:music_player/models/track.dart';
 import 'package:music_player/services/download_save_stub.dart'
     if (dart.library.js_interop) 'package:music_player/services/download_save_web.dart'
     if (dart.library.io) 'package:music_player/services/download_save_io.dart';
+import 'package:music_player/services/stream_resolver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _kDownloadsKey = 'downloads.v1';
@@ -204,13 +205,16 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
     };
 
     try {
+      // Resolve the audio URL device-first (backend fallback built in) so
+      // downloads don't proxy through the backend's bandwidth quota.
+      final streamUrl = await StreamResolver.instance.resolve(track);
       final response = await _dio.get<List<int>>(
-        track.audioUrl,
+        streamUrl,
         options: Options(responseType: ResponseType.bytes),
         onReceiveProgress: (received, total) {
           if (state[track.id]?.status == DownloadStatus.canceled) {
             throw DioException.requestCancelled(
-              requestOptions: RequestOptions(path: track.audioUrl),
+              requestOptions: RequestOptions(path: streamUrl),
               reason: 'Download canceled by user',
             );
           }
