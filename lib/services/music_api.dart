@@ -11,7 +11,7 @@ import 'package:music_player/models/track.dart';
 /// the backend, so target port 5000 of whatever host served the page — this
 /// covers dev on localhost, the PC's LAN IP when opened from a phone, and
 /// the backend-served production build alike.
-/// Android points at the PC on the LAN; desktop uses localhost.
+/// Android points at the deployed Render backend; desktop uses localhost.
 String get defaultServerUrl {
   if (kIsWeb) {
     final base = Uri.base;
@@ -21,7 +21,7 @@ String get defaultServerUrl {
     return 'http://${base.host}:5000';
   }
   if (defaultTargetPlatform == TargetPlatform.android) {
-    return 'http://192.168.100.94:5000';
+    return 'https://musicap-backend.onrender.com';
   }
   return 'http://localhost:5000';
 }
