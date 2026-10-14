@@ -26,6 +26,15 @@ String get defaultServerUrl {
   return 'http://localhost:5000';
 }
 
+/// Whether this platform uses the backend server for metadata.
+///
+/// Android is fully serverless — search, suggestions and related tracks
+/// come from on-device YouTube clients (see `DeviceMetadata`), local
+/// files are scanned through MediaStore, and streams resolve locally.
+/// Web and desktop keep using the backend.
+bool get usesBackend =>
+    kIsWeb || defaultTargetPlatform != TargetPlatform.android;
+
 class MusicApi {
   String _serverUrl = defaultServerUrl;
 

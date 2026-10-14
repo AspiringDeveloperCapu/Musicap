@@ -16,7 +16,7 @@ Future<String?> _preferredDir() async {
 /// Default folder inside the app documents directory.
 Future<String> _defaultDirPath() async {
   final docs = await getApplicationDocumentsDirectory();
-  return p.join(docs.path, 'Musicap');
+  return p.join(docs.path, 'DaviCap');
 }
 
 /// IO implementation: writes the file into the chosen save directory

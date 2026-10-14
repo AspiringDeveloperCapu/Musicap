@@ -1,14 +1,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:music_player/models/track.dart';
+import 'package:music_player/services/music_api.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+
+import 'stream_proxy_stub.dart'
+    if (dart.library.io) 'stream_proxy.dart';
 
 /// Resolves playable audio URLs for tracks.
 ///
-/// Hybrid architecture: track metadata comes from the backend, but the
-/// actual googlevideo stream URL is resolved on-device with
-/// youtube_explode_dart whenever possible. Falls back to the backend's
-/// `/api/stream` proxy on web, for demo tracks (no videoId), and whenever
-/// device-side resolution fails — so playback keeps working either way.
+/// Track metadata comes from the backend (web/desktop) or on-device
+/// YouTube clients (Android), but the actual googlevideo stream URL is
+/// always resolved on-device with youtube_explode_dart whenever a video
+/// ID exists. Local files play directly; web falls back to the backend's
+/// `/api/stream` proxy; on serverless Android a resolution failure
+/// throws so the error surfaces to the user instead of a dead URL.
 class StreamResolver {
   StreamResolver._();
 
@@ -27,37 +32,71 @@ class StreamResolver {
   YoutubeExplode? _yt;
 
   /// Returns the best playable audio URL for [track].
-  /// Never throws — always falls back to the track's backend URL.
+  ///
+  /// Local files pass through untouched; platforms with a backend fall
+  /// back to [Track.audioUrl] on failure; on serverless Android resolution
+  /// failures throw (the player surfaces them as playback errors).
   Future<String> resolve(Track track) async {
+    // Offline downloads: play the saved file as-is.
+    if (track.audioUrl.startsWith('file:')) return track.audioUrl;
+
     final videoId = track.videoId;
     if (kIsWeb || videoId == null || videoId.isEmpty) {
       return track.audioUrl;
     }
 
     final now = DateTime.now();
+    String? url;
     final cached = _cache[videoId];
     if (cached != null) {
       if (now.isBefore(cached.expiresAt)) {
         // Failure marker during backoff — skip straight to the fallback.
-        return cached.isFailure ? track.audioUrl : cached.url;
+        if (cached.isFailure) {
+          if (usesBackend) return track.audioUrl;
+          throw StateError('Stream for $videoId unavailable (backing off)');
+        }
+        url = cached.url;
+      } else {
+        _cache.remove(videoId);
       }
-      _cache.remove(videoId);
     }
 
-    try {
-      final url = await _resolve(videoId).timeout(_resolveTimeout);
-      _store(videoId, _CachedUrl(url, now.add(_cacheTtl)));
-      return url;
-    } catch (_) {
-      _store(videoId, _CachedUrl('', now.add(_failureBackoff)));
-      return track.audioUrl;
+    if (url == null) {
+      try {
+        url = await _resolve(videoId).timeout(_resolveTimeout);
+        _store(videoId, _CachedUrl(url, now.add(_cacheTtl)));
+      } catch (e) {
+        _store(videoId, _CachedUrl('', now.add(_failureBackoff)));
+        if (usesBackend) return track.audioUrl;
+        rethrow;
+      }
     }
+
+    // googlevideo rejects the open-ended byte ranges ExoPlayer sends
+    // (both for loading and for seeking), so the stream is served through
+    // a loopback relay that converts them to bounded ranges.
+    return StreamProxy.instance.relay(url, key: videoId);
   }
 
-  /// Resolves every track in [tracks] in parallel (used when a whole
-  /// queue is loaded). Failed entries fall back to their backend URL.
-  Future<List<String>> resolveAll(List<Track> tracks) =>
-      Future.wait(tracks.map(resolve));
+  /// Resolves every track in [tracks] with bounded parallelism. YouTube
+  /// rate-limits mass parallel manifest fetches (large queues otherwise
+  /// time out wholesale), so only a few are in flight at once. Failed
+  /// entries fall back to their backend URL (or throw on serverless
+  /// platforms).
+  Future<List<String>> resolveAll(List<Track> tracks) async {
+    const workers = 3;
+    final urls = List<String?>.filled(tracks.length, null);
+    var next = 0;
+    Future<void> worker() async {
+      while (next < tracks.length) {
+        final i = next++;
+        urls[i] = await resolve(tracks[i]);
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < workers; i++) worker()]);
+    return urls.cast<String>();
+  }
 
   Future<String> _resolve(String videoId) async {
     final yt = _yt ??= YoutubeExplode();
@@ -90,7 +129,7 @@ class _CachedUrl {
   final DateTime expiresAt;
 
   /// An empty [url] is a failure marker (during backoff [resolve]
-  /// treats it as a miss and returns the backend fallback directly).
+  /// falls back to the track's URL, or throws on serverless platforms).
   const _CachedUrl(this.url, this.expiresAt);
 
   bool get isFailure => url.isEmpty;

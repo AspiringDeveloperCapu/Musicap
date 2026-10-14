@@ -13,6 +13,7 @@ import 'features/playlist/playlist_detail_page.dart';
 import 'features/downloads/downloads_page.dart';
 import 'features/genres/genres_page.dart';
 import 'features/genres/genre_detail_page.dart';
+import 'features/local/local_music_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
 import 'providers/download_manager.dart';
@@ -115,7 +116,7 @@ class MusicPlayerApp extends ConsumerWidget {
     final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Musicap',
+      title: 'DaviCap',
       theme: ThemeData(
         primarySwatch: Colors.indigo,
         useMaterial3: true,
@@ -170,19 +171,28 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: const [
-          HomePage(),
-          GenresPage(),
-          PlaylistPage(),
-          DownloadsPage(),
-          SettingsPage(),
-        ],
+        children: usesBackend
+            ? const [
+                HomePage(),
+                GenresPage(),
+                PlaylistPage(),
+                DownloadsPage(),
+                SettingsPage(),
+              ]
+            : const [
+                HomePage(),
+                LocalMusicPage(),
+                PlaylistPage(),
+                DownloadsPage(),
+                SettingsPage(),
+              ],
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const MiniPlayer(),
           // Bottom navigation bar for switching between main sections.
+          // Backend platforms show Genres; serverless Android shows Local.
           BottomNavigationBar(
             currentIndex: _currentIndex,
             onTap: (index) {
@@ -190,13 +200,21 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 _currentIndex = index;
               });
             },
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-              BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Genres'),
-              BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
-              BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
-              BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-            ],
+            items: usesBackend
+                ? const [
+                    BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+                    BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Genres'),
+                    BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
+                    BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
+                    BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+                  ]
+                : const [
+                    BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+                    BottomNavigationBarItem(icon: Icon(Icons.music_note), label: 'Local'),
+                    BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
+                    BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
+                    BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+                  ],
             selectedItemColor: Colors.blueAccent,
             unselectedItemColor: Colors.grey,
           ),
@@ -481,9 +499,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// recommendations, region-based charts, and playlists.
   Widget _buildDashboard() {
     final recentlyPlayed = ref.watch(recentlyPlayedProvider);
-    final chartsAsync = ref.watch(chartsProvider);
-    final recommendationsAsync = ref.watch(recommendationsProvider);
-    final genresAsync = ref.watch(genresProvider);
+    final chartsAsync = usesBackend ? ref.watch(chartsProvider) : null;
+    final recommendationsAsync =
+        usesBackend ? ref.watch(recommendationsProvider) : null;
+    final genresAsync = usesBackend ? ref.watch(genresProvider) : null;
     final playlists = ref.watch(playlistManagerProvider);
     final region = ref.watch(settingsProvider.select((s) => s.region));
     final regionName = kRegions[region] ?? region;
@@ -493,42 +512,44 @@ class _HomePageState extends ConsumerState<HomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Genre quick-picks — tap to open that genre's playlists.
-          _buildGenreChips(genresAsync),
+          if (genresAsync != null) _buildGenreChips(genresAsync),
           if (recentlyPlayed.isNotEmpty)
             _buildSection(
               title: 'Recently Played',
               tracks: recentlyPlayed,
             ),
           // Personalized recommendations from the radio/watch playlist.
-          recommendationsAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
+          if (recommendationsAsync != null)
+            recommendationsAsync.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              // Recommendations are optional — hide the section on failure.
+              error: (_, __) => const SizedBox.shrink(),
+              data: (recs) => recs.isEmpty
+                  ? const SizedBox.shrink()
+                  : _buildSection(
+                      title: 'Made For You',
+                      tracks: recs,
+                    ),
             ),
-            // Recommendations are optional — hide the section on failure.
-            error: (_, __) => const SizedBox.shrink(),
-            data: (recs) => recs.isEmpty
-                ? const SizedBox.shrink()
-                : _buildSection(
-                    title: 'Made For You',
-                    tracks: recs,
-                  ),
-          ),
           // Trending charts for the selected region.
-          chartsAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
+          if (chartsAsync != null)
+            chartsAsync.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (err, _) => Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Could not load charts: $err', style: const TextStyle(color: Colors.grey)),
+              ),
+              data: (charts) => _buildSection(
+                title: 'Trending in $regionName',
+                tracks: charts,
+              ),
             ),
-            error: (err, _) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('Could not load charts: $err', style: const TextStyle(color: Colors.grey)),
-            ),
-            data: (charts) => _buildSection(
-              title: 'Trending in $regionName',
-              tracks: charts,
-            ),
-          ),
           _buildPlaylistsSection(playlists),
           const SizedBox(height: 24),
         ],
@@ -887,6 +908,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   /// A failure right after a cold launch is often just the OS bringing up
   /// networking, so schedule a single delayed retry to self-heal.
   Future<void> _checkServer() async {
+    if (!usesBackend) return;
     if (_checkingServer) return;
     setState(() => _checkingServer = true);
     final ok = await musicApi.checkHealth();
@@ -966,32 +988,34 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             onTap: () => _showLanguageDialog(context),
           ),
 
-          const Divider(height: 1),
-          _sectionHeader('Server'),
-          ListTile(
-            leading: _serverStatusIcon(),
-            title: const Text('Backend Address'),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(musicApi.serverUrl),
-                const SizedBox(height: 2),
-                _serverStatusText(),
-              ],
+          if (usesBackend) ...[
+            const Divider(height: 1),
+            _sectionHeader('Server'),
+            ListTile(
+              leading: _serverStatusIcon(),
+              title: const Text('Backend Address'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(musicApi.serverUrl),
+                  const SizedBox(height: 2),
+                  _serverStatusText(),
+                ],
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.refresh, size: 20),
+                tooltip: 'Check connection',
+                onPressed: _checkingServer ? null : _checkServer,
+              ),
+              onTap: () async {
+                await _showServerDialog(context);
+                if (mounted) {
+                  setState(() {});
+                  _checkServer();
+                }
+              },
             ),
-            trailing: IconButton(
-              icon: const Icon(Icons.refresh, size: 20),
-              tooltip: 'Check connection',
-              onPressed: _checkingServer ? null : _checkServer,
-            ),
-            onTap: () async {
-              await _showServerDialog(context);
-              if (mounted) {
-                setState(() {});
-                _checkServer();
-              }
-            },
-          ),
+          ],
 
           const Divider(height: 1),
 
@@ -1028,12 +1052,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _sectionHeader('About'),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About Musicap'),
+            title: const Text('About DaviCap'),
             subtitle: const Text('Version 1.0.0'),
             onTap: () {
               showAboutDialog(
                 context: context,
-                applicationName: 'Musicap',
+                applicationName: 'DaviCap',
                 applicationVersion: '1.0.0',
                 children: [
                   const Text('A Flutter music player app.'),
@@ -1069,7 +1093,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle: const Text('View open source licenses'),
             onTap: () => showLicensePage(
               context: context,
-              applicationName: 'Musicap',
+              applicationName: 'DaviCap',
               applicationVersion: '1.0.0',
             ),
           ),
@@ -1365,7 +1389,7 @@ Future<void> main() async {
       builder: () => MusicAudioHandler(),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.example.music_player.channel.audio',
-        androidNotificationChannelName: 'Musicap',
+        androidNotificationChannelName: 'DaviCap',
         androidNotificationOngoing: true,
         androidStopForegroundOnPause: true,
       ),

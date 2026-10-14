@@ -5,11 +5,13 @@ import 'package:music_player/models/genre.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/providers/settings_provider.dart';
+import 'package:music_player/services/device_metadata.dart';
 import 'package:music_player/services/music_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Fetches trending charts for the user's selected region/language.
 final chartsProvider = FutureProvider<List<Track>>((ref) async {
+  if (!usesBackend) return const <Track>[];
   final settings = ref.watch(settingsProvider);
   return musicApi.getCharts(
     limit: 20,
@@ -34,6 +36,7 @@ class RecentlyPlayedNotifier extends StateNotifier<List<Track>> {
 /// "Made for you" recommendations seeded by the most recently played track
 /// (or charts on first launch).
 final recommendationsProvider = FutureProvider<List<Track>>((ref) async {
+  if (!usesBackend) return const <Track>[];
   final recent = ref.watch(recentlyPlayedProvider);
   final language = ref.watch(settingsProvider.select((s) => s.language));
 
@@ -60,6 +63,7 @@ final recommendationsProvider = FutureProvider<List<Track>>((ref) async {
 
 /// YT Music Genres & Moods sections for the Genres page and Home chips.
 final genresProvider = FutureProvider<List<GenreSection>>((ref) async {
+  if (!usesBackend) return const <GenreSection>[];
   final language = ref.watch(settingsProvider.select((s) => s.language));
   return musicApi.getGenres(lang: language);
 });
@@ -67,6 +71,7 @@ final genresProvider = FutureProvider<List<GenreSection>>((ref) async {
 /// Recommendations seeded by a specific track (used in playlist detail).
 final trackRecommendationsProvider =
     FutureProvider.family<List<Track>, String>((ref, seedVideoId) async {
+  if (!usesBackend) return const <Track>[];
   final language = ref.watch(settingsProvider.select((s) => s.language));
   final recs = await musicApi.getRecommendations(
     videoId: seedVideoId,
@@ -79,6 +84,7 @@ final trackRecommendationsProvider =
 /// Songs and playlists inside one genre/mood category.
 final genreContentProvider =
     FutureProvider.family<GenreContent, String>((ref, params) async {
+  if (!usesBackend) return const GenreContent();
   final language = ref.watch(settingsProvider.select((s) => s.language));
   return musicApi.getGenreContent(params, limit: 12, lang: language);
 });
@@ -86,6 +92,7 @@ final genreContentProvider =
 /// Tracks of a playlist (genre playlists, recommendations into playlists).
 final playlistTracksProvider =
     FutureProvider.family<List<Track>, String>((ref, playlistId) async {
+  if (!usesBackend) return const <Track>[];
   final language = ref.watch(settingsProvider.select((s) => s.language));
   return musicApi.getPlaylistTracks(playlistId, limit: 50, lang: language);
 });
@@ -110,6 +117,8 @@ final searchResultsProvider = FutureProvider<List<Track>>((ref) async {
   final currentQuery = ref.read(searchQueryProvider);
   if (currentQuery != query) return [];
 
+  if (!usesBackend) return DeviceMetadata.instance.search(query, limit: 30);
+
   final language = ref.watch(settingsProvider.select((s) => s.language));
   return musicApi.search(query, limit: 30, lang: language);
 });
@@ -127,8 +136,9 @@ final searchSuggestionsProvider = FutureProvider<List<String>>((ref) async {
   if (currentQuery != query) return [];
 
   try {
-    final suggestions =
-        await musicApi.getSuggestions(query, lang: language);
+    final suggestions = usesBackend
+        ? await musicApi.getSuggestions(query, lang: language)
+        : await DeviceMetadata.instance.suggestions(query);
     return suggestions.where((s) => s.isNotEmpty).take(8).toList();
   } catch (_) {
     return [];

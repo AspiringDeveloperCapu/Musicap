@@ -91,6 +91,8 @@ class _DownloadPanelContent extends ConsumerWidget {
                                 title: e.value.title,
                                 artist: e.value.artist,
                                 audioUrl: e.value.audioUrl,
+                                videoId: e.value.videoId,
+                                filePath: e.value.filePath,
                                 progress: e.value.progress,
                                 status: DownloadStatus.downloading,
                               )),
@@ -103,6 +105,8 @@ class _DownloadPanelContent extends ConsumerWidget {
                                 title: e.value.title,
                                 artist: e.value.artist,
                                 audioUrl: e.value.audioUrl,
+                                videoId: e.value.videoId,
+                                filePath: e.value.filePath,
                                 progress: 1.0,
                                 status: DownloadStatus.downloaded,
                               )),
@@ -115,6 +119,8 @@ class _DownloadPanelContent extends ConsumerWidget {
                                 title: e.value.title,
                                 artist: e.value.artist,
                                 audioUrl: e.value.audioUrl,
+                                videoId: e.value.videoId,
+                                filePath: e.value.filePath,
                                 progress: e.value.progress,
                                 status: DownloadStatus.canceled,
                               )),
@@ -183,6 +189,8 @@ class _DownloadTile extends ConsumerWidget {
   final String title;
   final String artist;
   final String audioUrl;
+  final String? videoId;
+  final String? filePath;
   final double progress;
   final DownloadStatus status;
 
@@ -191,9 +199,15 @@ class _DownloadTile extends ConsumerWidget {
     required this.title,
     required this.artist,
     required this.audioUrl,
+    this.videoId,
+    this.filePath,
     required this.progress,
     required this.status,
   });
+
+  /// The saved file when it exists on disk, else the stored stream URL.
+  String get _playableUrl =>
+      filePath != null ? Uri.file(filePath!).toString() : audioUrl;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -348,12 +362,19 @@ class _DownloadTile extends ConsumerWidget {
             id: trackId,
             title: title,
             artist: artist,
-            audioUrl: audioUrl,
+            audioUrl: _playableUrl,
+            videoId: videoId,
           );
           ref.read(audioPlayerProvider.notifier).playTrack(track);
         } else if (value == 'playNext') {
           ref.read(audioPlayerProvider.notifier).playNext(
-            Track(id: trackId, title: title, artist: artist, audioUrl: audioUrl),
+            Track(
+              id: trackId,
+              title: title,
+              artist: artist,
+              audioUrl: _playableUrl,
+              videoId: videoId,
+            ),
           );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -363,7 +384,13 @@ class _DownloadTile extends ConsumerWidget {
           );
         } else if (value == 'addQueue') {
           ref.read(audioPlayerProvider.notifier).addToQueue(
-            Track(id: trackId, title: title, artist: artist, audioUrl: audioUrl),
+            Track(
+              id: trackId,
+              title: title,
+              artist: artist,
+              audioUrl: _playableUrl,
+              videoId: videoId,
+            ),
           );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -422,7 +449,8 @@ class _DownloadTile extends ConsumerWidget {
                           id: trackId,
                           title: title,
                           artist: artist,
-                          audioUrl: audioUrl,
+                          audioUrl: _playableUrl,
+                          videoId: videoId,
                         );
                         final added = ref
                             .read(playlistManagerProvider.notifier)

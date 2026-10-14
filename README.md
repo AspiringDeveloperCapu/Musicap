@@ -1,4 +1,4 @@
-# Musicap
+# DaviCap
 
 A cross-platform music player built with Flutter. Features queue management, playlist creation, search, downloads, and a polished UI with mini player.
 

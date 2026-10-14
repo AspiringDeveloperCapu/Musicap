@@ -5,6 +5,7 @@ import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/music_provider.dart';
 import 'package:music_player/providers/playlist_manager.dart';
 import 'package:music_player/providers/download_manager.dart';
+import 'package:music_player/services/music_api.dart';
 import 'package:music_player/features/player/player_controller.dart';
 import 'package:music_player/features/player/mini_player.dart';
 import 'package:music_player/widgets/horizontal_row.dart';
@@ -136,7 +137,7 @@ class PlaylistDetailPage extends ConsumerWidget {
                   ),
                 ),
                 // Track list
-                if (_seedTrack(playlist) != null)
+                if (usesBackend && _seedTrack(playlist) != null)
                   _buildRecommendations(context, ref, playlist),
                 Expanded(
                   child: ListView.builder(

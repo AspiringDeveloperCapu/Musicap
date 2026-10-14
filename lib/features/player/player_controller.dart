@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/audio_handler.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/providers/settings_provider.dart';
+import 'package:music_player/services/device_metadata.dart';
 import 'package:music_player/services/music_api.dart';
 import 'package:music_player/services/stream_resolver.dart';
 
@@ -35,6 +37,10 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   /// Guards against overlapping autoplay fetches.
   bool _autoplayLoading = false;
+
+  /// Bumped whenever a new queue is loaded so stale background resolution
+  /// loops (filling silence placeholders) stop touching the new source.
+  int _queueGeneration = 0;
 
   AudioPlayerController(this._ref)
       : _player = musicAudioHandler?.player ?? AudioPlayer(),
@@ -138,48 +144,117 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// Loads and plays a track. If [fromQueue] is provided, the entire list
   /// becomes the playback queue (using ConcatenatingAudioSource). [startIndex]
   /// determines which track in the queue to begin playing from.
+  ///
+  /// Only the starting track is resolved before playback begins (device-side
+  /// resolution takes ~1–3s); the rest of the queue starts as silence
+  /// placeholders that are swapped for real streams in the background.
+  /// Resolving every queue entry up front stalls start-of-playback and
+  /// YouTube rate-limits mass parallel manifest fetches.
   Future<void> playTrack(Track track, {List<Track>? fromQueue, int? startIndex}) async {
     final queue = fromQueue ?? [track];
-    final index = startIndex ?? queue.indexOf(track);
+    final index = (startIndex ?? queue.indexOf(track)).clamp(0, queue.length - 1);
+    final gen = ++_queueGeneration;
 
     try {
-      // Resolve stream URLs device-first (backend fallback built in),
-      // then convert each Track into an AudioSource tagged with metadata.
-      final urls = await StreamResolver.instance.resolveAll(queue);
+      state = state.copyWith(processing: true, error: null);
+
+      // Resolve only the track about to play.
+      final targetUrl = await StreamResolver.instance.resolve(queue[index]);
+
       final sources = [
         for (var i = 0; i < queue.length; i++)
-          AudioSource.uri(
-            Uri.parse(urls[i]),
-            tag: _mediaItem(queue[i]),
-          ),
+          i == index
+              ? AudioSource.uri(
+                  Uri.parse(targetUrl),
+                  tag: _mediaItem(queue[i]),
+                )
+              : SilenceAudioSource(
+                  tag: _mediaItem(queue[i]),
+                  duration: queue[i].duration ?? const Duration(seconds: 1),
+                ),
       ];
       final concatenating = ConcatenatingAudioSource(children: sources);
       _audioSource = concatenating;
 
       // Set the audio source and start from the specified index.
-      await _player.setAudioSource(
-        concatenating,
-        initialIndex: index.clamp(0, queue.length - 1),
-      );
+      await _player.setAudioSource(concatenating, initialIndex: index);
 
       // Update state with the new queue and current track info.
-      final current = queue[index.clamp(0, queue.length - 1)];
       state = state.copyWith(
         queue: queue,
-        currentIndex: index.clamp(0, queue.length - 1),
-        currentTitle: current.title,
-        currentArtist: current.artist,
-        currentUrl: current.audioUrl,
+        currentIndex: index,
+        currentTitle: queue[index].title,
+        currentArtist: queue[index].artist,
+        currentUrl: queue[index].audioUrl,
         hasNext: _player.hasNext,
         hasPrevious: _player.hasPrevious,
         error: null,
       );
 
       await _player.play();
+
+      // Fill the remaining queue entries behind the playback start.
+      unawaited(_fillQueueSources(queue, index, gen));
     } catch (e) {
-      state = state.copyWith(error: 'Failed to play: $e');
+      state = state.copyWith(processing: false, error: 'Failed to play: $e');
     }
   }
+
+  /// Resolves the remaining queue entries with a small worker pool and
+  /// swaps each silence placeholder for the real stream as it becomes
+  /// available. Stops early when a newer queue is loaded ([gen]).
+  Future<void> _fillQueueSources(List<Track> queue, int resolvedIndex, int gen) async {
+    const workers = 3;
+    var next = 0;
+    Future<void> worker() async {
+      while (next < queue.length && gen == _queueGeneration) {
+        final i = next++;
+        if (i == resolvedIndex) continue;
+        final track = queue[i];
+        String url;
+        try {
+          url = await StreamResolver.instance.resolve(track);
+        } catch (_) {
+          // Unresolvable on this platform — keep the silence placeholder.
+          continue;
+        }
+        if (gen != _queueGeneration) return;
+        await _replacePending(track, url, gen);
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < workers; i++) worker()]);
+  }
+
+  /// Replaces the silence placeholder for [track] with the real stream at
+  /// its current position. Serialized: index-based mutations must not
+  /// interleave or they'd hit stale indices.
+  Future<void> _replacePending(Track track, String url, int gen) async {
+    final prev = _replaceMutex;
+    final gate = Completer<void>();
+    _replaceMutex = gate.future;
+    await prev;
+    try {
+      if (gen != _queueGeneration) return;
+      final source = _audioSource;
+      if (source == null) return;
+      final tag = track.id;
+      final seq = source.sequence;
+      final i = seq.indexWhere((s) => s.tag is MediaItem && (s.tag as MediaItem).id == tag);
+      if (i < 0 || seq[i] is! SilenceAudioSource) return;
+      await source.removeAt(i);
+      await source.insert(
+        i,
+        AudioSource.uri(Uri.parse(url), tag: _mediaItem(track)),
+      );
+    } catch (_) {
+      // Queue was mutated concurrently (track removed/reordered) — skip.
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<void> _replaceMutex = Future.value();
 
   /// Appends a single track to the end of the current queue.
   /// If nothing is playing yet, starts playing the track instead.
@@ -244,8 +319,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   }
 
   /// When the queue runs out, fetch tracks related to the last played song
-  /// (backend radio) and continue playback with them. Falls back to the
-  /// charts feed when the seed is a demo track or the radio request fails.
+  /// and continue playback with them. Uses the backend radio on web/desktop;
+  /// serverless Android falls back to an on-device search for similar music.
   Future<void> _autoplayRelated() async {
     final enabled =
         _ref.read(settingsProvider.select((s) => s.autoplayRelated));
@@ -258,26 +333,39 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _autoplayLoading = true;
     try {
       var fresh = const <Track>[];
-      if (seed.videoId != null) {
-        try {
-          final related = await musicApi.getRecommendations(
-              videoId: seed.videoId!, limit: 10);
-          final existing = state.queue.map((t) => t.id).toSet();
-          fresh = related.where((t) => !existing.contains(t.id)).toList();
-        } catch (_) {
-          // Demo/invalid seed or radio error — try the charts feed.
+      if (usesBackend) {
+        if (seed.videoId != null) {
+          try {
+            final related = await musicApi.getRecommendations(
+                videoId: seed.videoId!, limit: 10);
+            final existing = state.queue.map((t) => t.id).toSet();
+            fresh = related.where((t) => !existing.contains(t.id)).toList();
+          } catch (_) {
+            // Demo/invalid seed or radio error — try the charts feed.
+          }
         }
-      }
-      if (fresh.isEmpty) {
+        if (fresh.isEmpty) {
+          try {
+            final charts = await musicApi.getCharts(limit: 10);
+            final existing = state.queue.map((t) => t.id).toSet();
+            fresh = charts
+                .where((t) => !existing.contains(t.id))
+                .take(10)
+                .toList();
+          } catch (_) {
+            // No fallback available — let playback end quietly.
+          }
+        }
+      } else if (seed.videoId != null) {
         try {
-          final charts = await musicApi.getCharts(limit: 10);
           final existing = state.queue.map((t) => t.id).toSet();
-          fresh = charts
-              .where((t) => !existing.contains(t.id))
-              .take(10)
-              .toList();
+          fresh = await DeviceMetadata.instance.related(
+            seed,
+            limit: 10,
+            excludeIds: existing,
+          );
         } catch (_) {
-          // No fallback available — let playback end quietly.
+          // Related feed unavailable — let playback end quietly.
         }
       }
       if (fresh.isEmpty) return;

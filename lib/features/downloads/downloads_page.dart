@@ -222,6 +222,7 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
                   title: dl.title,
                   artist: dl.artist,
                   audioUrl: nextUrl,
+                  videoId: dl.videoId,
                 ),
               );
               ScaffoldMessenger.of(context).showSnackBar(
@@ -231,8 +232,17 @@ class _DownloadsPageState extends ConsumerState<DownloadsPage> {
                 ),
               );
             } else if (value == 'addQueue') {
+              final queueUrl = (!kIsWeb && dl.filePath != null)
+                  ? Uri.file(dl.filePath!).toString()
+                  : dl.audioUrl;
               ref.read(audioPlayerProvider.notifier).addToQueue(
-                Track(id: trackId, title: dl.title, artist: dl.artist, audioUrl: dl.audioUrl),
+                Track(
+                  id: trackId,
+                  title: dl.title,
+                  artist: dl.artist,
+                  audioUrl: queueUrl,
+                  videoId: dl.videoId,
+                ),
               );
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
