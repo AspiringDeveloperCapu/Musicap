@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/services/music_api.dart';
@@ -5,6 +7,15 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'stream_proxy_stub.dart'
     if (dart.library.io) 'stream_proxy.dart';
+
+/// User-facing playback resolution failure. [toString] is the message
+/// shown to the user, without exception-class noise.
+class ResolveException implements Exception {
+  final String message;
+  ResolveException(this.message);
+  @override
+  String toString() => message;
+}
 
 /// Resolves playable audio URLs for tracks.
 ///
@@ -22,14 +33,21 @@ class StreamResolver {
   /// googlevideo URLs stay valid for hours; re-resolve well before that.
   static const _cacheTtl = Duration(minutes: 50);
 
-  /// Avoid stalling playback on a hung YouTube request.
-  static const _resolveTimeout = Duration(seconds: 12);
+  /// Avoid stalling playback on a hung YouTube request. Mobile networks
+  /// need more headroom than an emulator on LAN.
+  static const _resolveTimeout = Duration(seconds: 20);
 
   /// Don't hammer YouTube when resolution just failed.
   static const _failureBackoff = Duration(seconds: 60);
 
+  /// After a resolveAll batch that hit timeouts, leave the shared client
+  /// alone for this long before touching YouTube again — repeated fresh
+  /// clients during an active rate-limit just get refused faster.
+  static const _rateLimitCooldown = Duration(seconds: 90);
+
   final Map<String, _CachedUrl> _cache = {};
   YoutubeExplode? _yt;
+  DateTime? _coolingUntil;
 
   /// Returns the best playable audio URL for [track].
   ///
@@ -46,6 +64,12 @@ class StreamResolver {
     }
 
     final now = DateTime.now();
+    final cooling = _coolingUntil;
+    if (cooling != null && now.isBefore(cooling)) {
+      if (usesBackend) return track.audioUrl;
+      throw ResolveException('YouTube is busy — try again in a moment');
+    }
+
     String? url;
     final cached = _cache[videoId];
     if (cached != null) {
@@ -53,7 +77,8 @@ class StreamResolver {
         // Failure marker during backoff — skip straight to the fallback.
         if (cached.isFailure) {
           if (usesBackend) return track.audioUrl;
-          throw StateError('Stream for $videoId unavailable (backing off)');
+          throw ResolveException(
+              'Couldn\'t load stream — wait a moment and try again');
         }
         url = cached.url;
       } else {
@@ -63,11 +88,21 @@ class StreamResolver {
 
     if (url == null) {
       try {
-        url = await _resolve(videoId).timeout(_resolveTimeout);
+        url = await _resolveWithRetry(videoId);
         _store(videoId, _CachedUrl(url, now.add(_cacheTtl)));
       } catch (e) {
         _store(videoId, _CachedUrl('', now.add(_failureBackoff)));
         if (usesBackend) return track.audioUrl;
+        if (e is ResolveException) rethrow;
+        if (e is RequestLimitExceededException) {
+          _coolingUntil = DateTime.now().add(_rateLimitCooldown);
+          throw ResolveException(
+              'YouTube is busy — wait a minute and try again');
+        }
+        if (e is TimeoutException) {
+          throw ResolveException(
+              'Couldn\'t reach YouTube — check your connection and try again');
+        }
         rethrow;
       }
     }
@@ -78,24 +113,44 @@ class StreamResolver {
     return StreamProxy.instance.relay(url, key: videoId);
   }
 
-  /// Resolves every track in [tracks] with bounded parallelism. YouTube
-  /// rate-limits mass parallel manifest fetches (large queues otherwise
-  /// time out wholesale), so only a few are in flight at once. Failed
-  /// entries fall back to their backend URL (or throw on serverless
-  /// platforms).
+  /// Resolves every track in [tracks] sequentially. YouTube rate-limits
+  /// mass parallel manifest fetches (large queues otherwise time out
+  /// wholesale), so one fetch at a time with a pause between them. If
+  /// consecutive timeouts signal an active rate-limit, the rest of the
+  /// batch is abandoned and a cooldown is set so the next attempt waits
+  /// out the limit instead of feeding it more requests. Failed entries
+  /// come back as empty strings for the caller to skip.
   Future<List<String>> resolveAll(List<Track> tracks) async {
-    const workers = 3;
-    final urls = List<String?>.filled(tracks.length, null);
-    var next = 0;
-    Future<void> worker() async {
-      while (next < tracks.length) {
-        final i = next++;
+    final urls = List<String>.filled(tracks.length, '');
+    var consecutiveTimeouts = 0;
+
+    for (var i = 0; i < tracks.length; i++) {
+      try {
         urls[i] = await resolve(tracks[i]);
+        consecutiveTimeouts = 0;
+      } on TimeoutException {
+        consecutiveTimeouts++;
+        if (consecutiveTimeouts >= 2) {
+          // Active rate-limit: stop feeding the fire and cool down.
+          _coolingUntil = DateTime.now().add(_rateLimitCooldown);
+          _yt?.close();
+          _yt = null;
+          break;
+        }
+      } on RequestLimitExceededException {
+        // YouTube explicitly refused — cool down immediately.
+        _coolingUntil = DateTime.now().add(_rateLimitCooldown);
+        _yt?.close();
+        _yt = null;
+        break;
+      } catch (_) {
+        // Unresolvable track — leave '' and keep going.
+      }
+      if (i < tracks.length - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
       }
     }
-
-    await Future.wait([for (var i = 0; i < workers; i++) worker()]);
-    return urls.cast<String>();
+    return urls;
   }
 
   Future<String> _resolve(String videoId) async {
@@ -115,6 +170,18 @@ class StreamResolver {
       return muxed.withHighestBitrate().url.toString();
     }
     throw StateError('No playable streams for $videoId');
+  }
+
+  /// Resolves with one retry on timeout. A hung request poisons the
+  /// shared client's connection pool, so the retry gets a fresh one.
+  Future<String> _resolveWithRetry(String videoId) async {
+    try {
+      return await _resolve(videoId).timeout(_resolveTimeout);
+    } on TimeoutException {
+      _yt?.close();
+      _yt = null;
+      return await _resolve(videoId).timeout(_resolveTimeout);
+    }
   }
 
   void _store(String videoId, _CachedUrl entry) {

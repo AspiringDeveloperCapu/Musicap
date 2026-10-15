@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_player/audio_handler.dart';
@@ -196,6 +197,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       // Fill the remaining queue entries behind the playback start.
       unawaited(_fillQueueSources(queue, index, gen));
     } catch (e) {
+      debugPrint('[playTrack] failed: $e');
       state = state.copyWith(processing: false, error: 'Failed to play: $e');
     }
   }
@@ -203,6 +205,10 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// Resolves the remaining queue entries with a small worker pool and
   /// swaps each silence placeholder for the real stream as it becomes
   /// available. Stops early when a newer queue is loaded ([gen]).
+  ///
+  /// Fetches are spaced out (~400ms apart per worker): slamming YouTube
+  /// with parallel manifest requests trips its rate limit, after which
+  /// every subsequent resolve hangs and times out.
   Future<void> _fillQueueSources(List<Track> queue, int resolvedIndex, int gen) async {
     const workers = 3;
     var next = 0;
@@ -220,6 +226,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         }
         if (gen != _queueGeneration) return;
         await _replacePending(track, url, gen);
+        await Future<void>.delayed(const Duration(milliseconds: 400));
       }
     }
 
@@ -387,22 +394,40 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
       // Append in one batched timeline change instead of a burst of
       // single-item updates, keeping media-session/notification churn low.
-      final urls = await StreamResolver.instance.resolveAll(fresh);
+      // Only resolve a handful up front — resolveAll paces them
+      // sequentially to avoid YouTube's rate limit, and the queue-fill
+      // logic picks up any that come back empty later.
+      final toResolve = fresh.take(5).toList();
+      final urls = await StreamResolver.instance.resolveAll(toResolve);
+      final playable = <(Track, String)>[
+        for (var i = 0; i < toResolve.length; i++)
+          if (urls[i].isNotEmpty) (toResolve[i], urls[i]),
+      ];
+      debugPrint('[autoplay] resolved ${playable.length}/${toResolve.length} streams');
+      if (playable.isEmpty) {
+        state = state.copyWith(
+            error: 'YouTube is busy — related music will resume shortly');
+        return;
+      }
       await _audioSource!.addAll([
-        for (var i = 0; i < fresh.length; i++)
+        for (final (track, url) in playable)
           AudioSource.uri(
-            Uri.parse(urls[i]),
-            tag: _mediaItem(fresh[i]),
+            Uri.parse(url),
+            tag: _mediaItem(track),
           ),
       ]);
-      state = state.copyWith(queue: [...state.queue, ...fresh]);
+      // Any unresolved fresh tracks stay out of the queue for now.
+      state = state.copyWith(queue: [...state.queue, ...playable.map((p) => p.$1)]);
 
-      // Step into the appended tail and resume.
-      await _player.seekToNext();
+      // Step into the appended tail and resume. When the player is in
+      // completed state seekToNext is unreliable — jump to the first
+      // appended index explicitly, then play.
+      final nextIndex = (_player.currentIndex ?? state.queue.length - 1) + 1;
+      await _player.seek(Duration.zero, index: nextIndex);
       await _player.play();
       _updateState();
-    } catch (_) {
-      // Related music unavailable — let playback end quietly.
+    } catch (e) {
+      debugPrint('[autoplay] append/play failed: $e');
     } finally {
       _autoplayLoading = false;
     }
