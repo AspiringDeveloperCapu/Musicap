@@ -93,7 +93,9 @@ void confirmDeleteDownload(BuildContext context, WidgetRef ref, Track track) {
 /// Shared "more" popup menu for a track: Play next, Add to queue,
 /// Add to playlist, and Download / Delete download depending on state.
 /// When [onRemoveFromQueue] is set (player queue rows), a
-/// "Remove from queue" item is appended.
+/// "Remove from queue" item is appended. When [onDeleteLocal] is set
+/// (device-library rows), local files get "Delete file" instead of
+/// "Download".
 class TrackMenuButton extends ConsumerWidget {
   final Track track;
   final double iconSize;
@@ -101,6 +103,7 @@ class TrackMenuButton extends ConsumerWidget {
   final EdgeInsetsGeometry padding;
   final BoxConstraints? constraints;
   final VoidCallback? onRemoveFromQueue;
+  final VoidCallback? onDeleteLocal;
 
   const TrackMenuButton(
     this.track, {
@@ -110,7 +113,11 @@ class TrackMenuButton extends ConsumerWidget {
     this.padding = EdgeInsets.zero,
     this.constraints,
     this.onRemoveFromQueue,
+    this.onDeleteLocal,
   });
+
+  bool get _isLocalFile =>
+      onDeleteLocal != null && track.id.startsWith('local:');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -153,6 +160,8 @@ class TrackMenuButton extends ConsumerWidget {
             );
           case 'deleteDownload':
             confirmDeleteDownload(context, ref, track);
+          case 'deleteLocal':
+            onDeleteLocal?.call();
           case 'remove':
             onRemoveFromQueue?.call();
         }
@@ -161,7 +170,9 @@ class TrackMenuButton extends ConsumerWidget {
         const PopupMenuItem(value: 'playNext', child: Text('Play next')),
         const PopupMenuItem(value: 'queue', child: Text('Add to queue')),
         const PopupMenuItem(value: 'playlist', child: Text('Add to playlist')),
-        if (dlStatus == DownloadStatus.downloaded)
+        if (_isLocalFile)
+          const PopupMenuItem(value: 'deleteLocal', child: Text('Delete file'))
+        else if (dlStatus == DownloadStatus.downloaded)
           const PopupMenuItem(
             value: 'deleteDownload',
             child: Text('Delete download'),
@@ -187,6 +198,7 @@ class TrackTile extends ConsumerWidget {
   final bool showDuration;
   final bool showDownloadBadge;
   final double menuIconSize;
+  final VoidCallback? onDeleteLocal;
 
   const TrackTile({
     super.key,
@@ -195,6 +207,7 @@ class TrackTile extends ConsumerWidget {
     this.showDuration = false,
     this.showDownloadBadge = false,
     this.menuIconSize = 20,
+    this.onDeleteLocal,
   });
 
   @override
@@ -247,7 +260,11 @@ class TrackTile extends ConsumerWidget {
               padding: EdgeInsets.only(left: 4),
               child: Icon(Icons.download_done, size: 16, color: Colors.green),
             ),
-          TrackMenuButton(track, iconSize: menuIconSize),
+          TrackMenuButton(
+            track,
+            iconSize: menuIconSize,
+            onDeleteLocal: onDeleteLocal,
+          ),
         ],
       ),
       onTap: onTap,

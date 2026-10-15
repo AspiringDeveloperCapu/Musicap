@@ -59,29 +59,6 @@ class MusicAudioHandler extends BaseAudioHandler with SeekHandler {
   /// The last media item pushed to the system, used to skip redundant pushes.
   MediaItem? _lastMediaItem;
 
-  /// Loads and plays a single audio URL with optional metadata.
-  Future<void> loadUrl(String url, {String? title, String? artist}) async {
-    await _player.setUrl(url);
-    final item = MediaItem(
-      id: url,
-      title: title ?? 'Unknown Title',
-      artist: artist ?? 'Unknown Artist',
-      duration: _player.duration,
-    );
-    _lastMediaItem = item;
-    mediaItem.add(item);
-  }
-
-  /// Loads a list of audio URLs as a playlist and starts from [startIndex].
-  Future<void> loadPlaylist(List<String> urls, {int startIndex = 0}) async {
-    final sources = urls.map((url) => AudioSource.uri(
-      Uri.parse(url),
-      tag: MediaItem(id: url, title: 'Track ${urls.indexOf(url) + 1}'),
-    )).toList();
-    final playlist = ConcatenatingAudioSource(children: sources);
-    await _player.setAudioSource(playlist, initialIndex: startIndex);
-  }
-
   @override
   Future<void> play() => _player.play();
 

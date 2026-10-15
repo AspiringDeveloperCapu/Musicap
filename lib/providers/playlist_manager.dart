@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 const _uuid = Uuid();
-const _kPlaylistsKey = 'playlists.v1';
+const _kPlaylistsKey = 'playlists.v2';
 
 /// Mutable state provider for playlist management.
 /// Allows CRUD operations: create, rename, delete, add tracks, remove tracks.
@@ -16,13 +16,12 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
     _load();
   }
 
-  /// Loads persisted playlists, seeding defaults on first launch.
+  /// Loads persisted playlists. Starts empty on first launch.
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kPlaylistsKey);
     if (raw == null) {
-      state = _defaultPlaylists();
-      await _save();
+      state = const [];
       return;
     }
     try {
@@ -32,7 +31,7 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
           Playlist.fromJson(Map<String, dynamic>.from(p)),
       ];
     } catch (_) {
-      state = _defaultPlaylists();
+      state = const [];
       await _save();
     }
   }
@@ -44,60 +43,6 @@ class PlaylistManager extends StateNotifier<List<Playlist>> {
       _kPlaylistsKey,
       jsonEncode(state.map((p) => p.toJson()).toList()),
     );
-  }
-
-  /// Initial hardcoded playlists.
-  static List<Playlist> _defaultPlaylists() {
-    return [
-      Playlist(
-        id: 'p1',
-        name: 'Favorites',
-        tracks: [
-          const Track(
-            id: '8',
-            title: 'Don\'t Stop Believin\'',
-            artist: 'Journey',
-            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
-          ),
-          const Track(
-            id: '9',
-            title: 'Livin\' on a Prayer',
-            artist: 'Bon Jovi',
-            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
-          ),
-        ],
-      ),
-      Playlist(
-        id: 'p2',
-        name: 'Chill Vibes',
-        tracks: [
-          const Track(
-            id: '10',
-            title: 'Summertime',
-            artist: 'DJ Jazzy Jeff',
-            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3',
-          ),
-        ],
-      ),
-      Playlist(
-        id: 'p3',
-        name: 'Workout Mix',
-        tracks: [
-          const Track(
-            id: '11',
-            title: 'Stronger',
-            artist: 'Kanye West',
-            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3',
-          ),
-          const Track(
-            id: '12',
-            title: 'Till I Collapse',
-            artist: 'Eminem',
-            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3',
-          ),
-        ],
-      ),
-    ];
   }
 
   /// Creates a new empty playlist with the given [name].

@@ -1,11 +1,17 @@
 package com.example.music_player
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ContentUris
+import android.content.Intent
 import android.provider.MediaStore
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.engine.FlutterEngine
 import com.ryanheise.audioservice.AudioServiceActivity
 
 class MainActivity : AudioServiceActivity() {
+    private var pendingDeleteResult: MethodChannel.Result? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "music_player/local_audio")
@@ -23,9 +29,42 @@ class MainActivity : AudioServiceActivity() {
                             }
                         }.start()
                     }
+                    "deleteSong" -> {
+                        val mediaId = call.argument<Number>("mediaId")?.toLong()
+                        if (mediaId == null || mediaId <= 0) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        val uri = ContentUris.withAppendedId(
+                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId
+                        )
+                        try {
+                            val deleteRequest = MediaStore.createDeleteRequest(
+                                contentResolver, listOf(uri)
+                            )
+                            pendingDeleteResult = result
+                            startIntentSenderForResult(
+                                deleteRequest.intentSender, REQUEST_DELETE, null, 0, 0, 0
+                            )
+                        } catch (e: ActivityNotFoundException) {
+                            result.error("DELETE", e.message, null)
+                        } catch (e: Exception) {
+                            result.error("DELETE", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_DELETE) {
+            val r = pendingDeleteResult
+            pendingDeleteResult = null
+            r?.success(resultCode == Activity.RESULT_OK)
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun queryLocalSongs(): List<Map<String, Any?>> {
@@ -66,5 +105,9 @@ class MainActivity : AudioServiceActivity() {
             }
         }
         return songs
+    }
+
+    companion object {
+        private const val REQUEST_DELETE = 2001
     }
 }

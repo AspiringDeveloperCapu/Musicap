@@ -13,7 +13,7 @@ import 'features/playlist/playlist_detail_page.dart';
 import 'features/downloads/downloads_page.dart';
 import 'features/genres/genres_page.dart';
 import 'features/genres/genre_detail_page.dart';
-import 'features/local/local_music_page.dart';
+import 'features/device/device_music_page.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_manager.dart';
 import 'providers/download_manager.dart';
@@ -181,9 +181,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               ]
             : const [
                 HomePage(),
-                LocalMusicPage(),
+                DeviceMusicPage(),
                 PlaylistPage(),
-                DownloadsPage(),
                 SettingsPage(),
               ],
       ),
@@ -192,7 +191,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         children: [
           const MiniPlayer(),
           // Bottom navigation bar for switching between main sections.
-          // Backend platforms show Genres; serverless Android shows Local.
+          // Backend platforms show Genres + Downloads; serverless Android
+          // combines Local + Downloads into one "On Device" page.
           BottomNavigationBar(
             currentIndex: _currentIndex,
             onTap: (index) {
@@ -210,9 +210,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   ]
                 : const [
                     BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-                    BottomNavigationBarItem(icon: Icon(Icons.music_note), label: 'Local'),
+                    BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'On Device'),
                     BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
-                    BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
                     BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
                   ],
             selectedItemColor: Colors.blueAccent,
@@ -1164,7 +1163,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           keyboardType: TextInputType.url,
           decoration: const InputDecoration(
             labelText: 'Server URL',
-            hintText: 'http://192.168.1.11:5000',
+            hintText: 'https://your-backend.example.com',
             prefixIcon: Icon(Icons.dns_outlined),
           ),
         ),
