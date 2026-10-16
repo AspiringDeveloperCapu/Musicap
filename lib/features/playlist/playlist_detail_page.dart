@@ -338,7 +338,7 @@ class PlaylistDetailPage extends ConsumerWidget {
           Icons.more_vert,
           color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
         ),
-        onSelected: (value) {
+        onSelected: (value) async {
           if (value == 'remove') {
             ref
                 .read(playlistManagerProvider.notifier)
@@ -357,9 +357,57 @@ class PlaylistDetailPage extends ConsumerWidget {
                 duration: const Duration(seconds: 1),
               ),
             );
+          } else if (value == 'queue') {
+            try {
+              await ref.read(audioPlayerProvider.notifier).addToQueue(track);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Added "${track.title}" to queue'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Couldn\'t queue "${track.title}" — try again',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          } else if (value == 'playNext') {
+            try {
+              await ref.read(audioPlayerProvider.notifier).playNext(track);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('"${track.title}" will play next'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Couldn\'t queue "${track.title}" — try again',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
           }
         },
         itemBuilder: (context) => [
+          const PopupMenuItem(value: 'playNext', child: Text('Play next')),
+          const PopupMenuItem(value: 'queue', child: Text('Add to queue')),
           const PopupMenuItem(value: 'download', child: Text('Download')),
           const PopupMenuItem(
             value: 'remove',

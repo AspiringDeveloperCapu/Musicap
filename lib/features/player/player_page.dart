@@ -15,15 +15,13 @@ class PlayerPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(audioPlayerProvider);
-    final currentTrack = state.queue.isNotEmpty &&
-            state.currentIndex < state.queue.length
+    final currentTrack =
+        state.queue.isNotEmpty && state.currentIndex < state.queue.length
         ? state.queue[state.currentIndex]
         : null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Now Playing'),
-      ),
+      appBar: AppBar(title: const Text('Now Playing')),
       // ListView makes the entire page scrollable, including the queue list.
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
@@ -38,7 +36,8 @@ class PlayerPage extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                    color: Theme.of(context).colorScheme.primary
+                        .withOpacity(0.3),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
@@ -57,7 +56,9 @@ class PlayerPage extends ConsumerWidget {
               children: [
                 Flexible(
                   child: Text(
-                    state.currentTitle.isNotEmpty ? state.currentTitle : 'No Track',
+                    state.currentTitle.isNotEmpty
+                        ? state.currentTitle
+                        : 'No Track',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -80,7 +81,9 @@ class PlayerPage extends ConsumerWidget {
           // Artist name.
           Center(
             child: Text(
-              state.currentArtist.isNotEmpty ? state.currentArtist : 'Unknown Artist',
+              state.currentArtist.isNotEmpty
+                  ? state.currentArtist
+                  : 'Unknown Artist',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                 fontSize: 16,
@@ -142,10 +145,13 @@ class PlayerPage extends ConsumerWidget {
                   Icons.shuffle,
                   color: state.isShuffleEnabled
                       ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                      : Theme.of(context).colorScheme.onSurface
+                            .withOpacity(0.4),
                 ),
                 onPressed: () {
-                  ref.read(audioPlayerProvider.notifier).setShuffleMode(!state.isShuffleEnabled);
+                  ref
+                      .read(audioPlayerProvider.notifier)
+                      .setShuffleMode(!state.isShuffleEnabled);
                 },
               ),
               const SizedBox(width: 24),
@@ -159,15 +165,16 @@ class PlayerPage extends ConsumerWidget {
                       : Icons.repeat,
                   color: state.loopMode != LoopMode.off
                       ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                      : Theme.of(context).colorScheme.onSurface
+                            .withOpacity(0.4),
                 ),
                 onPressed: () {
                   // Cycle through: off -> all -> one -> off
                   final nextMode = state.loopMode == LoopMode.off
                       ? LoopMode.all
                       : state.loopMode == LoopMode.all
-                          ? LoopMode.one
-                          : LoopMode.off;
+                      ? LoopMode.one
+                      : LoopMode.off;
                   ref.read(audioPlayerProvider.notifier).setLoopMode(nextMode);
                 },
               ),
@@ -185,11 +192,11 @@ class PlayerPage extends ConsumerWidget {
                   state.volume == 0
                       ? Icons.volume_off
                       : state.volume < 0.5
-                          ? Icons.volume_down
-                          : Icons.volume_up,
+                      ? Icons.volume_down
+                      : Icons.volume_up,
                   size: 20,
-                  color:
-                      Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                  color: Theme.of(context).colorScheme.onSurface
+                      .withValues(alpha: 0.6),
                 ),
                 onPressed: () =>
                     ref.read(audioPlayerProvider.notifier).toggleMute(),
@@ -199,11 +206,16 @@ class PlayerPage extends ConsumerWidget {
                 child: SliderTheme(
                   data: SliderThemeData(
                     trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 12,
+                    ),
                     activeTrackColor: Theme.of(context).colorScheme.primary,
-                    inactiveTrackColor:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    inactiveTrackColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     thumbColor: Theme.of(context).colorScheme.primary,
                   ),
                   child: Slider(
@@ -220,9 +232,7 @@ class PlayerPage extends ConsumerWidget {
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
+                    color: Theme.of(context).colorScheme.onSurface
                         .withValues(alpha: 0.6),
                   ),
                 ),
@@ -250,7 +260,8 @@ class PlayerPage extends ConsumerWidget {
                     '${state.queue.length} tracks',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withOpacity(0.4),
                     ),
                   ),
                 ],
@@ -265,7 +276,9 @@ class PlayerPage extends ConsumerWidget {
               buildDefaultDragHandles: false,
               itemCount: state.queue.length,
               onReorder: (oldIndex, newIndex) {
-                ref.read(audioPlayerProvider.notifier).reorderQueue(oldIndex, newIndex);
+                ref
+                    .read(audioPlayerProvider.notifier)
+                    .reorderQueue(oldIndex, newIndex);
               },
               itemBuilder: (context, index) {
                 final track = state.queue[index];
@@ -288,28 +301,36 @@ class PlayerPage extends ConsumerWidget {
                       ),
                       child: Center(
                         child: isPlaying && state.isPlaying
-                            ? const Icon(Icons.equalizer, color: Colors.white, size: 20)
+                            ? const Icon(
+                                Icons.equalizer,
+                                color: Colors.white,
+                                size: 20,
+                              )
                             : isPlaying
-                                ? Icon(
-                                    Icons.play_arrow,
-                                    color: Colors.white,
-                                    size: 20,
-                                  )
-                                : Text(
-                                    '${index + 1}',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
-                                  ),
+                            ? Icon(
+                                Icons.play_arrow,
+                                color: Colors.white,
+                                size: 20,
+                              )
+                            : Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
                       ),
                     ),
                     title: Text(
                       track.title,
                       style: TextStyle(
-                        fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
-                        color: isPlaying ? Theme.of(context).colorScheme.primary : null,
+                        fontWeight: isPlaying
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: isPlaying
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
                         fontSize: 14,
                       ),
                       maxLines: 1,
@@ -328,8 +349,8 @@ class PlayerPage extends ConsumerWidget {
                         TrackMenuButton(
                           track,
                           iconSize: 20,
-                          iconColor:
-                              Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                          iconColor: Theme.of(context).colorScheme.onSurface
+                              .withOpacity(0.4),
                           onRemoveFromQueue: () {
                             ref
                                 .read(audioPlayerProvider.notifier)
@@ -342,14 +363,17 @@ class PlayerPage extends ConsumerWidget {
                           child: Icon(
                             Icons.reorder,
                             size: 20,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                            color: Theme.of(context).colorScheme.onSurface
+                                .withOpacity(0.3),
                           ),
                         ),
                       ],
                     ),
                     // Tapping a track jumps to it in the queue.
                     onTap: () {
-                      ref.read(audioPlayerProvider.notifier).playTrack(
+                      ref
+                          .read(audioPlayerProvider.notifier)
+                          .playTrack(
                             track,
                             fromQueue: state.queue,
                             startIndex: index,
@@ -409,15 +433,24 @@ class PlayerPage extends ConsumerWidget {
   }
 
   /// Builds the download button for the current track.
-  Widget _buildDownloadButton(BuildContext context, WidgetRef ref, AudioPlayerState state) {
+  Widget _buildDownloadButton(
+    BuildContext context,
+    WidgetRef ref,
+    AudioPlayerState state,
+  ) {
     if (state.currentUrl == null) return const SizedBox(width: 48, height: 48);
 
-    final track = Track(
-      id: state.currentIndex.toString(),
-      title: state.currentTitle,
-      artist: state.currentArtist,
-      audioUrl: state.currentUrl!,
-    );
+    // Use the real queue track so the videoId and full metadata reach the
+    // download manager — constructing a fresh Track here dropped both.
+    final track =
+        state.queue.isNotEmpty && state.currentIndex < state.queue.length
+        ? state.queue[state.currentIndex]
+        : Track(
+            id: state.currentIndex.toString(),
+            title: state.currentTitle,
+            artist: state.currentArtist,
+            audioUrl: state.currentUrl!,
+          );
 
     final dlState = ref.watch(downloadManagerProvider)[track.id];
 
@@ -486,8 +519,8 @@ class _InteractiveSeekBarState extends State<_InteractiveSeekBar> {
   Widget build(BuildContext context) {
     final value = widget.duration.inMilliseconds > 0
         ? (_isDragging
-            ? _dragValue
-            : widget.position.inMilliseconds / widget.duration.inMilliseconds)
+              ? _dragValue
+              : widget.position.inMilliseconds / widget.duration.inMilliseconds)
         : 0.0;
 
     return SliderTheme(
@@ -496,7 +529,9 @@ class _InteractiveSeekBarState extends State<_InteractiveSeekBar> {
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
         activeTrackColor: Theme.of(context).colorScheme.primary,
-        inactiveTrackColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        inactiveTrackColor: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest,
         thumbColor: Theme.of(context).colorScheme.primary,
       ),
       child: Slider(
@@ -553,17 +588,15 @@ class _PlaybackControls extends StatelessWidget {
         ),
         const SizedBox(width: 24),
         _ControlButton(
-          icon: isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+          icon: isPlaying
+              ? Icons.pause_circle_filled
+              : Icons.play_circle_filled,
           onPressed: onPlayPause,
           label: isPlaying ? 'Pause' : 'Play',
           size: 56,
         ),
         const SizedBox(width: 24),
-        _ControlButton(
-          icon: Icons.skip_next,
-          onPressed: onNext,
-          label: 'Next',
-        ),
+        _ControlButton(icon: Icons.skip_next, onPressed: onNext, label: 'Next'),
       ],
     );
   }
@@ -589,7 +622,9 @@ class _ControlButton extends StatelessWidget {
     return Tooltip(
       message: label,
       child: MouseRegion(
-        cursor: onPressed != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        cursor: onPressed != null
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
         child: IconButton(
           icon: Icon(icon, size: size),
           onPressed: onPressed,

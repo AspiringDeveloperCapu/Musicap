@@ -1,11 +1,15 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _kSaveDirKey = 'downloads.saveDir';
+
+/// Method channel to MainActivity's MediaStore save path.
+const _channel = MethodChannel('music_player/local_audio');
 
 /// User-chosen save directory, persisted across launches.
 Future<String?> _preferredDir() async {
@@ -13,15 +17,41 @@ Future<String?> _preferredDir() async {
   return prefs.getString(_kSaveDirKey);
 }
 
-/// Default folder inside the app documents directory.
+/// Default folder inside the app documents directory (desktop fallback).
 Future<String> _defaultDirPath() async {
   final docs = await getApplicationDocumentsDirectory();
   return p.join(docs.path, 'DaviCap');
 }
 
-/// IO implementation: writes the file into the chosen save directory
-/// (or the default app folder when the user hasn't picked one).
+String _mimeTypeFor(String filename) {
+  final lower = filename.toLowerCase();
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.ogg')) return 'audio/ogg';
+  if (lower.endsWith('.flac')) return 'audio/flac';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  return 'application/octet-stream';
+}
+
+/// IO implementation: on Android writes into the public Download/DaviCap
+/// folder via MediaStore (visible to file managers, no scoped-storage
+/// denial). On desktop writes into the chosen save directory (or the
+/// default app folder when the user hasn't picked one).
 Future<String?> saveFile(List<int> bytes, String filename) async {
+  if (Platform.isAndroid) {
+    try {
+      return await _channel.invokeMethod<String>('saveToDownloads', {
+        'filename': filename,
+        'bytes': Uint8List.fromList(bytes),
+        'mimeType': _mimeTypeFor(filename),
+      });
+    } catch (_) {
+      // MediaStore failed (device quirk) — fall through to the private
+      // app folder so the download itself still succeeds.
+    }
+  }
   final base = await _preferredDir() ?? await _defaultDirPath();
   final dir = Directory(base);
   if (!dir.existsSync()) {
@@ -55,8 +85,10 @@ Future<void> deleteFile(String path) async {
   }
 }
 
-/// Folder picker available on Android, Windows, macOS, Linux, iOS.
-bool get directoryPickerSupported => true;
+/// Folder picker: Android's scoped storage makes picked raw paths
+/// unwritable, so the picker is desktop-only. Android always uses
+/// the fixed public Download/DaviCap folder.
+bool get directoryPickerSupported => !Platform.isAndroid;
 
 Future<String?> pickDirectory() async {
   try {
@@ -76,5 +108,7 @@ Future<String?> pickDirectory() async {
 Future<void> ensureDirectoryForDownload() async {}
 
 /// The folder downloads are written to (shown in Settings).
-Future<String?> directoryLabel() async =>
-    await _preferredDir() ?? await _defaultDirPath();
+Future<String?> directoryLabel() async {
+  if (Platform.isAndroid) return 'Download/DaviCap';
+  return await _preferredDir() ?? await _defaultDirPath();
+}

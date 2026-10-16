@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
@@ -11,12 +12,14 @@ import 'package:music_player/providers/settings_provider.dart';
 import 'package:music_player/services/device_metadata.dart';
 import 'package:music_player/services/music_api.dart';
 import 'package:music_player/services/stream_resolver.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Riverpod provider that exposes the audio player controller and its state
 /// to the entire widget tree.
-final audioPlayerProvider = StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
-  return AudioPlayerController(ref);
-});
+final audioPlayerProvider =
+    StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
+      return AudioPlayerController(ref);
+    });
 
 /// Central audio player controller that manages playback, queue, shuffle,
 /// loop, and all player state. Uses just_audio's AudioPlayer under the hood
@@ -39,14 +42,20 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// Guards against overlapping autoplay fetches.
   bool _autoplayLoading = false;
 
+  /// True when the current track is within 1s of its end. Used by the
+  /// watchdog below: if the player drops to idle without ever emitting
+  /// `completed` (e.g. the last track errored out), we still know the
+  /// track had essentially finished.
+  bool _nearTrackEnd = false;
+
   /// Bumped whenever a new queue is loaded so stale background resolution
   /// loops (filling silence placeholders) stop touching the new source.
   int _queueGeneration = 0;
 
   AudioPlayerController(this._ref)
-      : _player = musicAudioHandler?.player ?? AudioPlayer(),
-        _ownsPlayer = musicAudioHandler == null,
-        super(AudioPlayerState()) {
+    : _player = musicAudioHandler?.player ?? AudioPlayer(),
+      _ownsPlayer = musicAudioHandler == null,
+      super(AudioPlayerState()) {
     _initialize();
   }
 
@@ -84,6 +93,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
     // Update current position as the track plays.
     _player.positionStream.listen((position) {
+      final duration = _player.duration;
+      _nearTrackEnd =
+          duration != null &&
+          duration.inMilliseconds > 0 &&
+          position.inMilliseconds >= duration.inMilliseconds - 1000;
       state = state.copyWith(currentPosition: position);
     });
 
@@ -95,6 +109,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     // When the player moves to a different track in the playlist, update
     // the current track info (title, artist, url) and navigation flags.
     _player.currentIndexStream.listen((index) {
+      _nearTrackEnd = false;
       if (index != null && index < state.queue.length) {
         final track = state.queue[index];
         state = state.copyWith(
@@ -111,13 +126,18 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     // Sync isPlaying and processing (loading/buffering) flags.
     // Also detect when playback completes.
     _player.playerStateStream.listen((playerState) {
-      final processingDone = playerState.processingState == ProcessingState.completed;
+      final processingDone =
+          playerState.processingState == ProcessingState.completed;
       state = state.copyWith(
         isPlaying: playerState.playing,
-        processing: playerState.processingState == ProcessingState.loading ||
+        processing:
+            playerState.processingState == ProcessingState.loading ||
             playerState.processingState == ProcessingState.buffering,
         hasNext: _player.hasNext,
         hasPrevious: _player.hasPrevious,
+        // Keep loop mode in sync with the player — the notification's
+        // repeat button changes it without going through setLoopMode.
+        loopMode: _player.loopMode,
       );
       if (processingDone) {
         state = state.copyWith(isPlaying: false);
@@ -126,6 +146,19 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           _autoplayRelated();
         }
       }
+
+      // Watchdog: the last track reached its end (or errored right at the
+      // end) but `completed` never fired, so the queue-exhausted branch
+      // above was missed. Trigger autoplay anyway so playback continues.
+      if (playerState.processingState == ProcessingState.idle &&
+          !playerState.playing &&
+          _nearTrackEnd &&
+          !_player.hasNext &&
+          state.loopMode == LoopMode.off &&
+          state.queue.isNotEmpty) {
+        _nearTrackEnd = false;
+        _autoplayRelated();
+      }
     });
 
     // Keep the UI volume control in sync with the player.
@@ -133,13 +166,90 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       state = state.copyWith(volume: volume);
     });
 
-    // Catch playback errors from the event stream.
+    // Catch playback errors from the event stream. Also clear the
+    // processing flag — an errored player stays in STATE_IDLE and never
+    // emits another state event, which would otherwise leave the UI
+    // spinner running forever. When the last track dies mid-playback
+    // (expired stream URL etc.), kick off autoplay so the queue doesn't
+    // just stop.
     _player.playbackEventStream.listen(
       (_) {},
       onError: (Object e, StackTrace st) {
-        state = state.copyWith(error: 'Playback error: $e');
+        state = state.copyWith(error: 'Playback error: $e', processing: false);
+        final duration = _player.duration;
+        final position = _player.position;
+        final halfway =
+            duration == null ||
+            duration.inMilliseconds == 0 ||
+            position.inMilliseconds >= duration.inMilliseconds ~/ 2;
+        if (state.queue.isNotEmpty &&
+            !_player.hasNext &&
+            halfway &&
+            state.loopMode == LoopMode.off) {
+          unawaited(_autoplayRelated());
+        }
       },
     );
+
+    // Restore the previous queue so the mini player shows where the user
+    // left off. Playback stays paused until they press play.
+    unawaited(_loadPersistedQueue());
+  }
+
+  static const _kQueueKey = 'player.queue.v1';
+
+  /// Persists the current queue, index, and shuffle/loop modes so the app
+  /// can restore them after a restart.
+  Future<void> _saveQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (state.queue.isEmpty) {
+        await prefs.remove(_kQueueKey);
+        return;
+      }
+      await prefs.setString(
+        _kQueueKey,
+        jsonEncode({
+          'queue': state.queue.map((t) => t.toJson()).toList(),
+          'index': state.currentIndex,
+          'shuffle': state.isShuffleEnabled,
+          'loop': state.loopMode.name,
+        }),
+      );
+    } catch (_) {
+      // Persistence is best-effort — never break playback for it.
+    }
+  }
+
+  /// Restores a previously saved queue into state (paused). The audio
+  /// source is only rebuilt when the user presses play.
+  Future<void> _loadPersistedQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kQueueKey);
+      if (raw == null || state.queue.isNotEmpty) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final queue = (data['queue'] as List)
+          .map((e) => Track.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (queue.isEmpty) return;
+      final index = (data['index'] as int? ?? 0).clamp(0, queue.length - 1);
+      final loopName = data['loop'] as String?;
+      state = state.copyWith(
+        queue: queue,
+        currentIndex: index,
+        currentTitle: queue[index].title,
+        currentArtist: queue[index].artist,
+        currentUrl: queue[index].audioUrl,
+        isShuffleEnabled: data['shuffle'] as bool? ?? false,
+        loopMode: LoopMode.values.firstWhere(
+          (m) => m.name == loopName,
+          orElse: () => LoopMode.off,
+        ),
+      );
+    } catch (_) {
+      // Corrupt payload — start fresh.
+    }
   }
 
   /// Loads and plays a track. If [fromQueue] is provided, the entire list
@@ -151,54 +261,86 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// placeholders that are swapped for real streams in the background.
   /// Resolving every queue entry up front stalls start-of-playback and
   /// YouTube rate-limits mass parallel manifest fetches.
-  Future<void> playTrack(Track track, {List<Track>? fromQueue, int? startIndex}) async {
+  ///
+  /// Failed attempts are retried up to 3 times with increasing backoff
+  /// (2s, 4s) before surfacing a final error.
+  Future<void> playTrack(
+    Track track, {
+    List<Track>? fromQueue,
+    int? startIndex,
+  }) async {
     final queue = fromQueue ?? [track];
-    final index = (startIndex ?? queue.indexOf(track)).clamp(0, queue.length - 1);
+    final index = (startIndex ?? queue.indexOf(track)).clamp(
+      0,
+      queue.length - 1,
+    );
     final gen = ++_queueGeneration;
 
-    try {
-      state = state.copyWith(processing: true, error: null);
+    state = state.copyWith(processing: true, error: null);
 
-      // Resolve only the track about to play.
-      final targetUrl = await StreamResolver.instance.resolve(queue[index]);
+    const maxAttempts = 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // Resolve only the track about to play.
+        final targetUrl = await StreamResolver.instance.resolve(queue[index]);
+        if (gen != _queueGeneration) return; // A newer queue took over.
 
-      final sources = [
-        for (var i = 0; i < queue.length; i++)
-          i == index
-              ? AudioSource.uri(
-                  Uri.parse(targetUrl),
-                  tag: _mediaItem(queue[i]),
-                )
-              : SilenceAudioSource(
-                  tag: _mediaItem(queue[i]),
-                  duration: queue[i].duration ?? const Duration(seconds: 1),
-                ),
-      ];
-      final concatenating = ConcatenatingAudioSource(children: sources);
-      _audioSource = concatenating;
+        final sources = [
+          for (var i = 0; i < queue.length; i++)
+            i == index
+                ? AudioSource.uri(
+                    Uri.parse(targetUrl),
+                    tag: _mediaItem(queue[i]),
+                  )
+                : SilenceAudioSource(
+                    tag: _mediaItem(queue[i]),
+                    // Unknown-duration tracks used to get a 1s placeholder,
+                    // which made the player skip them the moment resolution
+                    // lagged behind. 30s holds the slot long enough for the
+                    // background fill to catch up.
+                    duration: queue[i].duration ?? const Duration(seconds: 30),
+                  ),
+        ];
+        final concatenating = ConcatenatingAudioSource(children: sources);
+        _audioSource = concatenating;
 
-      // Set the audio source and start from the specified index.
-      await _player.setAudioSource(concatenating, initialIndex: index);
+        // Set the audio source and start from the specified index.
+        await _player.setAudioSource(concatenating, initialIndex: index);
 
-      // Update state with the new queue and current track info.
-      state = state.copyWith(
-        queue: queue,
-        currentIndex: index,
-        currentTitle: queue[index].title,
-        currentArtist: queue[index].artist,
-        currentUrl: queue[index].audioUrl,
-        hasNext: _player.hasNext,
-        hasPrevious: _player.hasPrevious,
-        error: null,
-      );
+        // Update state with the new queue and current track info.
+        state = state.copyWith(
+          queue: queue,
+          currentIndex: index,
+          currentTitle: queue[index].title,
+          currentArtist: queue[index].artist,
+          currentUrl: queue[index].audioUrl,
+          hasNext: _player.hasNext,
+          hasPrevious: _player.hasPrevious,
+          error: null,
+        );
 
-      await _player.play();
+        await _player.play();
 
-      // Fill the remaining queue entries behind the playback start.
-      unawaited(_fillQueueSources(queue, index, gen));
-    } catch (e) {
-      debugPrint('[playTrack] failed: $e');
-      state = state.copyWith(processing: false, error: 'Failed to play: $e');
+        _saveQueue();
+
+        // Fill the remaining queue entries behind the playback start.
+        unawaited(_fillQueueSources(queue, index, gen));
+        return;
+      } catch (e) {
+        debugPrint('[playTrack] attempt $attempt/$maxAttempts failed: $e');
+        if (gen != _queueGeneration) return;
+        if (attempt < maxAttempts) {
+          state = state.copyWith(
+            error: "Couldn't play — retrying ($attempt/$maxAttempts)…",
+          );
+          await Future<void>.delayed(Duration(seconds: 1 << attempt));
+        } else {
+          state = state.copyWith(
+            processing: false,
+            error: 'Failed to play: $e',
+          );
+        }
+      }
     }
   }
 
@@ -206,15 +348,31 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// swaps each silence placeholder for the real stream as it becomes
   /// available. Stops early when a newer queue is loaded ([gen]).
   ///
+  /// The next 3 tracks after the current one are resolved first so
+  /// track-to-track transitions stay gapless; the rest follow behind.
+  ///
   /// Fetches are spaced out (~400ms apart per worker): slamming YouTube
   /// with parallel manifest requests trips its rate limit, after which
   /// every subsequent resolve hangs and times out.
-  Future<void> _fillQueueSources(List<Track> queue, int resolvedIndex, int gen) async {
+  Future<void> _fillQueueSources(
+    List<Track> queue,
+    int resolvedIndex,
+    int gen,
+  ) async {
     const workers = 3;
+    // Upcoming tracks first, then everything else.
+    final seen = <int>{};
+    for (var i = resolvedIndex + 1; i < queue.length; i++) {
+      seen.add(i);
+    }
+    for (var i = 0; i < resolvedIndex; i++) {
+      seen.add(i);
+    }
+    final order = seen.toList();
     var next = 0;
     Future<void> worker() async {
-      while (next < queue.length && gen == _queueGeneration) {
-        final i = next++;
+      while (next < order.length && gen == _queueGeneration) {
+        final i = order[next++];
         if (i == resolvedIndex) continue;
         final track = queue[i];
         String url;
@@ -222,6 +380,13 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           url = await StreamResolver.instance.resolve(track);
         } catch (_) {
           // Unresolvable on this platform — keep the silence placeholder.
+          // Warn when it's the very next track: the user would otherwise
+          // hear dead air when it comes up.
+          if (gen == _queueGeneration && i == resolvedIndex + 1) {
+            state = state.copyWith(
+              error: '"${track.title}" couldn\'t load — skipping ahead',
+            );
+          }
           continue;
         }
         if (gen != _queueGeneration) return;
@@ -247,7 +412,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       if (source == null) return;
       final tag = track.id;
       final seq = source.sequence;
-      final i = seq.indexWhere((s) => s.tag is MediaItem && (s.tag as MediaItem).id == tag);
+      final i = seq.indexWhere(
+        (s) => s.tag is MediaItem && (s.tag as MediaItem).id == tag,
+      );
       if (i < 0 || seq[i] is! SilenceAudioSource) return;
       await source.removeAt(i);
       await source.insert(
@@ -268,11 +435,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   Future<void> addToQueue(Track track) async {
     if (_audioSource != null) {
       final url = await StreamResolver.instance.resolve(track);
-      await _audioSource!.add(AudioSource.uri(
-        Uri.parse(url),
-        tag: _mediaItem(track),
-      ));
+      await _audioSource!.add(
+        AudioSource.uri(Uri.parse(url), tag: _mediaItem(track)),
+      );
       state = state.copyWith(queue: [...state.queue, track]);
+      _saveQueue();
     } else {
       await playTrack(track);
     }
@@ -286,13 +453,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       final url = await StreamResolver.instance.resolve(track);
       await _audioSource!.insert(
         insertAt,
-        AudioSource.uri(
-          Uri.parse(url),
-          tag: _mediaItem(track),
-        ),
+        AudioSource.uri(Uri.parse(url), tag: _mediaItem(track)),
       );
       final newQueue = List<Track>.from(state.queue)..insert(insertAt, track);
       state = state.copyWith(queue: newQueue, hasNext: _player.hasNext);
+      _saveQueue();
     } else {
       await playTrack(track);
     }
@@ -329,8 +494,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// and continue playback with them. Uses the backend radio on web/desktop;
   /// serverless Android falls back to an on-device search for similar music.
   Future<void> _autoplayRelated() async {
-    final enabled =
-        _ref.read(settingsProvider.select((s) => s.autoplayRelated));
+    final enabled = _ref.read(
+      settingsProvider.select((s) => s.autoplayRelated),
+    );
     if (!enabled || _autoplayLoading) return;
     if (state.queue.isEmpty) return;
 
@@ -344,7 +510,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         if (seed.videoId != null) {
           try {
             final related = await musicApi.getRecommendations(
-                videoId: seed.videoId!, limit: 10);
+              videoId: seed.videoId!,
+              limit: 10,
+            );
             final existing = state.queue.map((t) => t.id).toSet();
             fresh = related.where((t) => !existing.contains(t.id)).toList();
           } catch (_) {
@@ -386,9 +554,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       }
 
       if (_audioSource == null) {
-        await playTrack(fresh.first,
-            fromQueue: [...state.queue, ...fresh],
-            startIndex: state.queue.length);
+        await playTrack(
+          fresh.first,
+          fromQueue: [...state.queue, ...fresh],
+          startIndex: state.queue.length,
+        );
         return;
       }
 
@@ -403,21 +573,24 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         for (var i = 0; i < toResolve.length; i++)
           if (urls[i].isNotEmpty) (toResolve[i], urls[i]),
       ];
-      debugPrint('[autoplay] resolved ${playable.length}/${toResolve.length} streams');
+      debugPrint(
+        '[autoplay] resolved ${playable.length}/${toResolve.length} streams',
+      );
       if (playable.isEmpty) {
         state = state.copyWith(
-            error: 'YouTube is busy — related music will resume shortly');
+          error: 'YouTube is busy — related music will resume shortly',
+        );
         return;
       }
       await _audioSource!.addAll([
         for (final (track, url) in playable)
-          AudioSource.uri(
-            Uri.parse(url),
-            tag: _mediaItem(track),
-          ),
+          AudioSource.uri(Uri.parse(url), tag: _mediaItem(track)),
       ]);
       // Any unresolved fresh tracks stay out of the queue for now.
-      state = state.copyWith(queue: [...state.queue, ...playable.map((p) => p.$1)]);
+      state = state.copyWith(
+        queue: [...state.queue, ...playable.map((p) => p.$1)],
+      );
+      _saveQueue();
 
       // Step into the appended tail and resume. When the player is in
       // completed state seekToNext is unreliable — jump to the first
@@ -456,7 +629,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         // Adjust currentIndex if a track before it was removed, and re-sync
         // the displayed track — the index stream fires while the old queue is
         // still in state, which would otherwise leave a stale title behind.
-        final newIndex = state.currentIndex > index ? state.currentIndex - 1 : state.currentIndex;
+        final newIndex = state.currentIndex > index
+            ? state.currentIndex - 1
+            : state.currentIndex;
         final track = newQueue[newIndex.clamp(0, newQueue.length - 1)];
         state = state.copyWith(
           queue: newQueue,
@@ -466,6 +641,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           currentUrl: track.audioUrl,
         );
       }
+      _saveQueue();
     }
   }
 
@@ -503,6 +679,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       currentArtist: current.artist,
       currentUrl: current.audioUrl,
     );
+    _saveQueue();
   }
 
   Future<void> play() async {
@@ -525,12 +702,43 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     await _player.stop();
     _audioSource = null;
     state = AudioPlayerState();
+    _saveQueue();
   }
 
-  /// Toggles between play and pause.
+  /// Shutdown for app exit: stops playback and the audio handler so the
+  /// media notification doesn't linger, but keeps the queue and its
+  /// persisted copy intact so the next launch restores where the user
+  /// left off (paused).
+  Future<void> exitPlayback() async {
+    try {
+      await _player.stop();
+    } catch (_) {}
+    try {
+      await musicAudioHandler?.stop();
+    } catch (_) {}
+    state = state.copyWith(
+      isPlaying: false,
+      processing: false,
+      currentPosition: Duration.zero,
+    );
+  }
+
+  /// Toggles between play and pause. When resuming after an app restart
+  /// (queue restored but no audio source yet), rebuilds the queue from
+  /// the persisted state first.
   Future<void> playOrPause() async {
     if (_player.playing) {
       await _player.pause();
+    } else if (_audioSource == null && state.queue.isNotEmpty) {
+      // Restored-from-disk queue — the player has no source yet. Rebuild
+      // it starting at the previously current track.
+      final index = state.currentIndex.clamp(0, state.queue.length - 1);
+      await playTrack(
+        state.queue[index],
+        fromQueue: state.queue,
+        startIndex: index,
+      );
+      return;
     } else {
       await _player.play();
     }
@@ -609,7 +817,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   void _updateState() {
     state = state.copyWith(
       isPlaying: _player.playing,
-      processing: _player.processingState == ProcessingState.loading ||
+      processing:
+          _player.processingState == ProcessingState.loading ||
           _player.processingState == ProcessingState.buffering,
       currentPosition: _player.position,
       totalDuration: _player.duration,

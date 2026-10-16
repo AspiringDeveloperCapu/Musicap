@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -117,10 +118,7 @@ class MusicPlayerApp extends ConsumerWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'DaviCap',
-      theme: ThemeData(
-        primarySwatch: Colors.indigo,
-        useMaterial3: true,
-      ),
+      theme: ThemeData(primarySwatch: Colors.indigo, useMaterial3: true),
       darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: themeMode,
       home: const MainScreen(),
@@ -144,13 +142,49 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
 
+  /// Back-press handler: pause playback and ask for confirmation before
+  /// leaving. Exit also stops the audio service so the media notification
+  /// doesn't linger after the app is gone.
+  Future<void> _confirmExit() async {
+    final player = ref.read(audioPlayerProvider.notifier);
+    final playerState = ref.read(audioPlayerProvider);
+    if (playerState.isPlaying) {
+      await player.pause();
+    }
+    final hadMusic = playerState.currentTitle.isNotEmpty;
+    if (!mounted) return;
+    final exit = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit DaviCap?'),
+        content: Text(hadMusic ? 'Music will stop playing.' : 'Close the app?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
+    );
+    if (exit == true) {
+      await player.exitPlayback();
+      SystemNavigator.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(audioPlayerProvider);
 
     // Apply playback speed whenever it changes (including initial load).
-    ref.listen(settingsProvider.select((s) => s.playbackSpeed),
-        (previous, next) {
+    ref.listen(settingsProvider.select((s) => s.playbackSpeed), (
+      previous,
+      next,
+    ) {
       ref.read(audioPlayerProvider.notifier).setSpeed(next);
     });
 
@@ -168,56 +202,104 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       });
     }
 
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: usesBackend
-            ? const [
-                HomePage(),
-                GenresPage(),
-                PlaylistPage(),
-                DownloadsPage(),
-                SettingsPage(),
-              ]
-            : const [
-                HomePage(),
-                DeviceMusicPage(),
-                PlaylistPage(),
-                SettingsPage(),
-              ],
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const MiniPlayer(),
-          // Bottom navigation bar for switching between main sections.
-          // Backend platforms show Genres + Downloads; serverless Android
-          // combines Local + Downloads into one "On Device" page.
-          BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            items: usesBackend
-                ? const [
-                    BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-                    BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Genres'),
-                    BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
-                    BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
-                    BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-                  ]
-                : const [
-                    BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-                    BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'On Device'),
-                    BottomNavigationBarItem(icon: Icon(Icons.queue_music), label: 'Library'),
-                    BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-                  ],
-            selectedItemColor: Colors.blueAccent,
-            unselectedItemColor: Colors.grey,
+    // Show download failure snackbars, then clear them.
+    final downloadError = ref.watch(downloadErrorProvider);
+    if (downloadError != null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(downloadError),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
           ),
-        ],
+        );
+        ref.read(downloadErrorProvider.notifier).state = null;
+      });
+    }
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _confirmExit();
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: _currentIndex,
+          children: usesBackend
+              ? const [
+                  HomePage(),
+                  GenresPage(),
+                  PlaylistPage(),
+                  DownloadsPage(),
+                  SettingsPage(),
+                ]
+              : const [
+                  HomePage(),
+                  DeviceMusicPage(),
+                  PlaylistPage(),
+                  SettingsPage(),
+                ],
+        ),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const MiniPlayer(),
+            // Bottom navigation bar for switching between main sections.
+            // Backend platforms show Genres + Downloads; serverless Android
+            // combines Local + Downloads into one "On Device" page.
+            BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              items: usesBackend
+                  ? const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.home),
+                        label: 'Home',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.explore),
+                        label: 'Genres',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.queue_music),
+                        label: 'Library',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.download),
+                        label: 'Downloads',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.settings),
+                        label: 'Settings',
+                      ),
+                    ]
+                  : const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.home),
+                        label: 'Home',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.folder),
+                        label: 'On Device',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.queue_music),
+                        label: 'Library',
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.settings),
+                        label: 'Settings',
+                      ),
+                    ],
+              selectedItemColor: Colors.blueAccent,
+              unselectedItemColor: Colors.grey,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -336,7 +418,10 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// Search view: list rows with art/title/artist/duration, suggestions
   /// while results load, and distinct loading/empty/error states.
-  Widget _buildSearchResults(AsyncValue<List<Track>> resultsAsync, String query) {
+  Widget _buildSearchResults(
+    AsyncValue<List<Track>> resultsAsync,
+    String query,
+  ) {
     return resultsAsync.when(
       loading: () => _buildSuggestionList(),
       error: (err, _) => Center(
@@ -345,8 +430,10 @@ class _HomePageState extends ConsumerState<HomePage> {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.grey),
             const SizedBox(height: 8),
-            Text('Search failed: $err',
-                style: const TextStyle(color: Colors.grey)),
+            Text(
+              'Search failed: $err',
+              style: const TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => ref.invalidate(searchResultsProvider),
@@ -364,13 +451,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.search_off,
-                          size: 48, color: Colors.grey),
+                      const Icon(
+                        Icons.search_off,
+                        size: 48,
+                        color: Colors.grey,
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         'No results for "$query"',
-                        style:
-                            const TextStyle(fontSize: 16, color: Colors.grey),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                        ),
                       ),
                     ],
                   ),
@@ -499,8 +591,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget _buildDashboard() {
     final recentlyPlayed = ref.watch(recentlyPlayedProvider);
     final chartsAsync = usesBackend ? ref.watch(chartsProvider) : null;
-    final recommendationsAsync =
-        usesBackend ? ref.watch(recommendationsProvider) : null;
+    final recommendationsAsync = usesBackend
+        ? ref.watch(recommendationsProvider)
+        : null;
     final genresAsync = usesBackend ? ref.watch(genresProvider) : null;
     final playlists = ref.watch(playlistManagerProvider);
     final region = ref.watch(settingsProvider.select((s) => s.region));
@@ -513,10 +606,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           // Genre quick-picks — tap to open that genre's playlists.
           if (genresAsync != null) _buildGenreChips(genresAsync),
           if (recentlyPlayed.isNotEmpty)
-            _buildSection(
-              title: 'Recently Played',
-              tracks: recentlyPlayed,
-            ),
+            _buildSection(title: 'Recently Played', tracks: recentlyPlayed),
           // Personalized recommendations from the radio/watch playlist.
           if (recommendationsAsync != null)
             recommendationsAsync.when(
@@ -528,10 +618,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               error: (_, __) => const SizedBox.shrink(),
               data: (recs) => recs.isEmpty
                   ? const SizedBox.shrink()
-                  : _buildSection(
-                      title: 'Made For You',
-                      tracks: recs,
-                    ),
+                  : _buildSection(title: 'Made For You', tracks: recs),
             ),
           // Trending charts for the selected region.
           if (chartsAsync != null)
@@ -542,7 +629,10 @@ class _HomePageState extends ConsumerState<HomePage> {
               ),
               error: (err, _) => Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('Could not load charts: $err', style: const TextStyle(color: Colors.grey)),
+                child: Text(
+                  'Could not load charts: $err',
+                  style: const TextStyle(color: Colors.grey),
+                ),
               ),
               data: (charts) => _buildSection(
                 title: 'Trending in $regionName',
@@ -620,7 +710,11 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// Builds a single track card with album art placeholder, title, artist,
   /// a download status indicator, and a 3-dot menu for actions.
-  Widget _buildTrackCard(Track track, {required List<Track> fromQueue, double? width}) {
+  Widget _buildTrackCard(
+    Track track, {
+    required List<Track> fromQueue,
+    double? width,
+  }) {
     final dlState = ref.watch(downloadManagerProvider)[track.id];
     final status = dlState?.status;
 
@@ -673,7 +767,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface.withOpacity(0.85),
+                        color: Theme.of(context).colorScheme.surface
+                            .withOpacity(0.85),
                         shape: BoxShape.circle,
                       ),
                       child: status == DownloadStatus.downloading
@@ -708,10 +803,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             const SizedBox(height: 8),
             Text(
               track.title,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -791,30 +883,33 @@ class _HomePageState extends ConsumerState<HomePage> {
                     icon: Icon(
                       Icons.more_vert,
                       size: 18,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withOpacity(0.6),
                     ),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
-                onSelected: (value) async {
-                  if (value == 'addAllQueue') {
-                    // Await each add: a fire-and-forget loop lets the first
-                    // track's playTrack (started when the queue is empty)
-                    // overwrite the state written by later appends, leaving
-                    // the queue list out of sync with the player.
-                    for (final track in playlist.tracks) {
-                      await ref
-                          .read(audioPlayerProvider.notifier)
-                          .addToQueue(track);
-                    }
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Added ${playlist.tracks.length} tracks to queue'),
-                        duration: const Duration(seconds: 1),
-                      ),
-                    );
-                  }
-                },
+                    onSelected: (value) async {
+                      if (value == 'addAllQueue') {
+                        // Await each add: a fire-and-forget loop lets the first
+                        // track's playTrack (started when the queue is empty)
+                        // overwrite the state written by later appends, leaving
+                        // the queue list out of sync with the player.
+                        for (final track in playlist.tracks) {
+                          await ref
+                              .read(audioPlayerProvider.notifier)
+                              .addToQueue(track);
+                        }
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Added ${playlist.tracks.length} tracks to queue',
+                            ),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
                     itemBuilder: (context) => [
                       const PopupMenuItem(
                         value: 'addAllQueue',
@@ -828,10 +923,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             const SizedBox(height: 8),
             Text(
               playlist.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -929,9 +1021,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
           // Appearance section.
@@ -941,8 +1031,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               settings.themeMode == ThemeMode.dark
                   ? Icons.dark_mode
                   : settings.themeMode == ThemeMode.light
-                      ? Icons.light_mode
-                      : Icons.brightness_auto,
+                  ? Icons.light_mode
+                  : Icons.brightness_auto,
             ),
             title: const Text('Theme'),
             subtitle: Text(_themeModeLabel(settings.themeMode)),
@@ -1067,7 +1157,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   const SizedBox(height: 4),
                   InkWell(
                     onTap: () => launchUrl(
-                      Uri.parse('https://github.com/AspiringDeveloperCapu/Musicap'),
+                      Uri.parse(
+                        'https://github.com/AspiringDeveloperCapu/Musicap',
+                      ),
                     ),
                     child: Text(
                       'https://github.com/AspiringDeveloperCapu/Musicap',
@@ -1124,10 +1216,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final (label, color) = _checkingServer
         ? ('Checking connection…', Colors.grey)
         : _serverOnline == null
-            ? ('Not checked yet', Colors.grey)
-            : _serverOnline!
-                ? ('Connected', Colors.green)
-                : ('Cannot reach server', Colors.red);
+        ? ('Not checked yet', Colors.grey)
+        : _serverOnline!
+        ? ('Connected', Colors.green)
+        : ('Cannot reach server', Colors.red);
     return Row(
       children: [
         Icon(Icons.circle, size: 8, color: color),
@@ -1180,9 +1272,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ),
     );
     if (saved == true && controller.text.trim().isNotEmpty) {
-      await ref
-          .read(settingsProvider.notifier)
-          .setServerUrl(controller.text);
+      await ref.read(settingsProvider.notifier).setServerUrl(controller.text);
     }
   }
 
@@ -1330,16 +1420,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         .where((d) => d.status == DownloadStatus.downloaded)
         .length;
     if (count == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No downloads to clear')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No downloads to clear')));
       return;
     }
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Clear all downloads?'),
-        content: Text('This will remove $count downloaded track${count > 1 ? 's' : ''}. This cannot be undone.'),
+        content: Text(
+          'This will remove $count downloaded track${count > 1 ? 's' : ''}. This cannot be undone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -1397,9 +1488,5 @@ Future<void> main() async {
     debugPrint('AudioService.init failed: $e');
   }
 
-  runApp(
-    const ProviderScope(
-      child: MusicPlayerApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MusicPlayerApp()));
 }

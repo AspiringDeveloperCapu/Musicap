@@ -20,16 +20,47 @@ final chartsProvider = FutureProvider<List<Track>>((ref) async {
   );
 });
 
-/// Recently played tracks — stored locally in memory.
-final recentlyPlayedProvider = StateNotifierProvider<RecentlyPlayedNotifier, List<Track>>((ref) {
-  return RecentlyPlayedNotifier();
-});
+/// Recently played tracks — persisted so they survive restarts.
+final recentlyPlayedProvider =
+    StateNotifierProvider<RecentlyPlayedNotifier, List<Track>>((ref) {
+      return RecentlyPlayedNotifier();
+    });
 
 class RecentlyPlayedNotifier extends StateNotifier<List<Track>> {
-  RecentlyPlayedNotifier() : super([]);
+  RecentlyPlayedNotifier() : super(const []) {
+    _load();
+  }
+
+  static const _kKey = 'recentlyPlayed.v1';
+  static const _kMax = 20;
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kKey);
+    if (raw == null) return;
+    try {
+      final list = (jsonDecode(raw) as List)
+          .map((e) => Track.fromJson(e as Map<String, dynamic>))
+          .toList();
+      // Merge with anything added before the async load completed.
+      final existing = state.map((t) => t.id).toSet();
+      state = [...state, ...list.where((t) => !existing.contains(t.id))];
+    } catch (_) {
+      // Corrupt history — start fresh.
+    }
+  }
 
   void addTrack(Track track) {
-    state = [track, ...state.where((t) => t.id != track.id).take(19)];
+    state = [track, ...state.where((t) => t.id != track.id).take(_kMax - 1)];
+    _save();
+  }
+
+  Future<void> _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kKey,
+      jsonEncode(state.map((t) => t.toJson()).toList()),
+    );
   }
 }
 
@@ -69,29 +100,34 @@ final genresProvider = FutureProvider<List<GenreSection>>((ref) async {
 });
 
 /// Recommendations seeded by a specific track (used in playlist detail).
-final trackRecommendationsProvider =
-    FutureProvider.family<List<Track>, String>((ref, seedVideoId) async {
-  if (!usesBackend) return const <Track>[];
-  final language = ref.watch(settingsProvider.select((s) => s.language));
-  final recs = await musicApi.getRecommendations(
-    videoId: seedVideoId,
-    limit: 20,
-    lang: language,
-  );
-  return recs.where((t) => t.id != seedVideoId).toList();
-});
+final trackRecommendationsProvider = FutureProvider.family<List<Track>, String>(
+  (ref, seedVideoId) async {
+    if (!usesBackend) return const <Track>[];
+    final language = ref.watch(settingsProvider.select((s) => s.language));
+    final recs = await musicApi.getRecommendations(
+      videoId: seedVideoId,
+      limit: 20,
+      lang: language,
+    );
+    return recs.where((t) => t.id != seedVideoId).toList();
+  },
+);
 
 /// Songs and playlists inside one genre/mood category.
-final genreContentProvider =
-    FutureProvider.family<GenreContent, String>((ref, params) async {
+final genreContentProvider = FutureProvider.family<GenreContent, String>((
+  ref,
+  params,
+) async {
   if (!usesBackend) return const GenreContent();
   final language = ref.watch(settingsProvider.select((s) => s.language));
   return musicApi.getGenreContent(params, limit: 12, lang: language);
 });
 
 /// Tracks of a playlist (genre playlists, recommendations into playlists).
-final playlistTracksProvider =
-    FutureProvider.family<List<Track>, String>((ref, playlistId) async {
+final playlistTracksProvider = FutureProvider.family<List<Track>, String>((
+  ref,
+  playlistId,
+) async {
   if (!usesBackend) return const <Track>[];
   final language = ref.watch(settingsProvider.select((s) => s.language));
   return musicApi.getPlaylistTracks(playlistId, limit: 50, lang: language);
@@ -148,8 +184,8 @@ final searchSuggestionsProvider = FutureProvider<List<String>>((ref) async {
 /// Search history — persisted so it survives restarts.
 final recentSearchesProvider =
     StateNotifierProvider<RecentSearchesNotifier, List<String>>((ref) {
-  return RecentSearchesNotifier();
-});
+      return RecentSearchesNotifier();
+    });
 
 class RecentSearchesNotifier extends StateNotifier<List<String>> {
   RecentSearchesNotifier() : super(const []) {

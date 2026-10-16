@@ -122,32 +122,62 @@ class TrackMenuButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dlStatus = ref.watch(downloadManagerProvider)[track.id]?.status;
-    final menuColor = iconColor ??
-        Theme.of(context).colorScheme.onSurface.withOpacity(0.6);
+    final menuColor =
+        iconColor ?? Theme.of(context).colorScheme.onSurface.withOpacity(0.6);
 
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, size: iconSize, color: menuColor),
       padding: padding,
       constraints: constraints,
-      onSelected: (value) {
+      onSelected: (value) async {
         final controller = ref.read(audioPlayerProvider.notifier);
         switch (value) {
           case 'playNext':
-            controller.playNext(track);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('"${track.title}" will play next'),
-                duration: const Duration(seconds: 1),
-              ),
-            );
+            try {
+              await controller.playNext(track);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('"${track.title}" will play next'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Couldn\'t queue "${track.title}" — try again',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
           case 'queue':
-            controller.addToQueue(track);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Added "${track.title}" to queue'),
-                duration: const Duration(seconds: 1),
-              ),
-            );
+            try {
+              await controller.addToQueue(track);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Added "${track.title}" to queue'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              }
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Couldn\'t queue "${track.title}" — try again',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
           case 'playlist':
             showAddToPlaylistDialog(context, ref, track);
           case 'download':
@@ -233,11 +263,7 @@ class TrackTile extends ConsumerWidget {
               : const Icon(Icons.music_note),
         ),
       ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         track.artist,
         maxLines: 1,
@@ -254,8 +280,7 @@ class TrackTile extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
               ),
             ),
-          if (showDownloadBadge &&
-              dlState?.status == DownloadStatus.downloaded)
+          if (showDownloadBadge && dlState?.status == DownloadStatus.downloaded)
             const Padding(
               padding: EdgeInsets.only(left: 4),
               child: Icon(Icons.download_done, size: 16, color: Colors.green),

@@ -45,9 +45,34 @@ class StreamResolver {
   /// clients during an active rate-limit just get refused faster.
   static const _rateLimitCooldown = Duration(seconds: 90);
 
+  /// Cap for the escalating cooldown so a bad streak doesn't silence
+  /// resolution for the rest of the session.
+  static const _maxCooldown = Duration(minutes: 15);
+
   final Map<String, _CachedUrl> _cache = {};
   YoutubeExplode? _yt;
   DateTime? _coolingUntil;
+
+  /// Escalates 90s → 3min → 7min → 15min across repeated rate-limits
+  /// within a short window, backing off harder instead of repeatedly
+  /// poking an IP that YouTube is already refusing.
+  int _rateLimitStrikes = 0;
+  DateTime? _lastRateLimit;
+
+  void _tripRateLimit() {
+    final now = DateTime.now();
+    if (_lastRateLimit == null ||
+        now.difference(_lastRateLimit!) > const Duration(minutes: 20)) {
+      _rateLimitStrikes = 0;
+    }
+    _lastRateLimit = now;
+    _rateLimitStrikes++;
+    var cooldown = _rateLimitCooldown * (1 << (_rateLimitStrikes - 1).clamp(0, 4));
+    if (cooldown > _maxCooldown) cooldown = _maxCooldown;
+    _coolingUntil = now.add(cooldown);
+    _yt?.close();
+    _yt = null;
+  }
 
   /// Returns the best playable audio URL for [track].
   ///
@@ -95,7 +120,7 @@ class StreamResolver {
         if (usesBackend) return track.audioUrl;
         if (e is ResolveException) rethrow;
         if (e is RequestLimitExceededException) {
-          _coolingUntil = DateTime.now().add(_rateLimitCooldown);
+          _tripRateLimit();
           throw ResolveException(
               'YouTube is busy — wait a minute and try again');
         }
@@ -132,16 +157,12 @@ class StreamResolver {
         consecutiveTimeouts++;
         if (consecutiveTimeouts >= 2) {
           // Active rate-limit: stop feeding the fire and cool down.
-          _coolingUntil = DateTime.now().add(_rateLimitCooldown);
-          _yt?.close();
-          _yt = null;
+          _tripRateLimit();
           break;
         }
       } on RequestLimitExceededException {
         // YouTube explicitly refused — cool down immediately.
-        _coolingUntil = DateTime.now().add(_rateLimitCooldown);
-        _yt?.close();
-        _yt = null;
+        _tripRateLimit();
         break;
       } catch (_) {
         // Unresolvable track — leave '' and keep going.

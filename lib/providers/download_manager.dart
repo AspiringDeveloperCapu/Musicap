@@ -11,6 +11,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _kDownloadsKey = 'downloads.v1';
 
+/// Transient download error surfaced to the UI (shown as a snackbar by
+/// MainScreen, which clears it after display).
+final downloadErrorProvider = StateProvider<String?>((ref) => null);
+
 /// Tracks the download status of individual tracks.
 enum DownloadStatus { notDownloaded, downloading, downloaded, canceled }
 
@@ -112,10 +116,16 @@ class DownloadState {
 /// saved to disk (desktop/mobile) or handed to the browser (web), and the
 /// download history is persisted across restarts.
 class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
-  final Dio _dio = Dio();
+  final Ref _ref;
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 60),
+    ),
+  );
   bool _hydrated = false;
 
-  DownloadManager() : super({}) {
+  DownloadManager(this._ref) : super({}) {
     _load();
   }
 
@@ -250,25 +260,50 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
         ),
       };
       _save();
-    } on DioException {
+    } on DioException catch (e) {
       // Canceled or network failure — keep canceled state if set,
       // otherwise reset so the user can retry.
       final current = state[track.id];
       if (current != null && current.status != DownloadStatus.canceled) {
-        state = {...state, track.id: current.copyWith(
-          status: DownloadStatus.notDownloaded,
-          progress: 0.0,
-        )};
+        state = {
+          ...state,
+          track.id: current.copyWith(
+            status: DownloadStatus.notDownloaded,
+            progress: 0.0,
+          ),
+        };
+        _ref.read(downloadErrorProvider.notifier).state = _friendlyDioError(
+          e,
+          track,
+        );
       }
     } catch (_) {
       // Reset to retryable state unless the user canceled it.
       final current = state[track.id];
       if (current != null && current.status != DownloadStatus.canceled) {
-        state = {...state, track.id: current.copyWith(
-          status: DownloadStatus.notDownloaded,
-          progress: 0.0,
-        )};
+        state = {
+          ...state,
+          track.id: current.copyWith(
+            status: DownloadStatus.notDownloaded,
+            progress: 0.0,
+          ),
+        };
+        _ref.read(downloadErrorProvider.notifier).state =
+            'Download failed for "${track.title}" — check your connection and retry';
       }
+    }
+  }
+
+  String _friendlyDioError(DioException e, Track track) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'Download timed out for "${track.title}" — check your connection and retry';
+      case DioExceptionType.connectionError:
+        return 'No connection — couldn\'t download "${track.title}"';
+      default:
+        return 'Download failed for "${track.title}" — check your connection and retry';
     }
   }
 
@@ -327,7 +362,9 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
   }
 
   /// Returns only downloaded tracks as a list, optionally sorted.
-  List<MapEntry<String, DownloadState>> getDownloaded({String sortBy = 'date'}) {
+  List<MapEntry<String, DownloadState>> getDownloaded({
+    String sortBy = 'date',
+  }) {
     final downloaded = state.entries
         .where((e) => e.value.status == DownloadStatus.downloaded)
         .toList();
@@ -341,9 +378,11 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
         break;
       case 'date':
       default:
-        downloaded.sort((a, b) =>
-            (b.value.downloadedAt ?? DateTime(0))
-                .compareTo(a.value.downloadedAt ?? DateTime(0)));
+        downloaded.sort(
+          (a, b) => (b.value.downloadedAt ?? DateTime(0)).compareTo(
+            a.value.downloadedAt ?? DateTime(0),
+          ),
+        );
         break;
     }
 
@@ -366,5 +405,5 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
 
 final downloadManagerProvider =
     StateNotifierProvider<DownloadManager, Map<String, DownloadState>>((ref) {
-  return DownloadManager();
-});
+      return DownloadManager(ref);
+    });

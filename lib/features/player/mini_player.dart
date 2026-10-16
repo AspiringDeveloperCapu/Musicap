@@ -23,14 +23,15 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
 
     if (state.currentTitle.isEmpty) return const SizedBox.shrink();
 
-    final position = state.totalDuration != null &&
+    final position =
+        state.totalDuration != null &&
             state.totalDuration!.inMilliseconds > 0 &&
             state.currentPosition != null
         ? (_isDragging
-            ? _dragValue
-            : (state.currentPosition!.inMilliseconds /
-                    state.totalDuration!.inMilliseconds)
-                .clamp(0.0, 1.0))
+              ? _dragValue
+              : (state.currentPosition!.inMilliseconds /
+                        state.totalDuration!.inMilliseconds)
+                    .clamp(0.0, 1.0))
         : 0.0;
 
     return Container(
@@ -45,8 +46,9 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
               activeTrackColor: Theme.of(context).colorScheme.primary,
-              inactiveTrackColor:
-                  Theme.of(context).colorScheme.surfaceContainerHighest,
+              inactiveTrackColor: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest,
             ),
             child: Slider(
               value: position,
@@ -67,8 +69,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                 });
                 final clamped = v.clamp(0.0, 1.0);
                 final pos = Duration(
-                  milliseconds:
-                      (clamped * state.totalDuration!.inMilliseconds).round(),
+                  milliseconds: (clamped * state.totalDuration!.inMilliseconds)
+                      .round(),
                 );
                 ref.read(audioPlayerProvider.notifier).seek(pos);
               },
@@ -88,12 +90,10 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                       state.volume == 0
                           ? Icons.volume_off
                           : state.volume < 0.5
-                              ? Icons.volume_down
-                              : Icons.volume_up,
+                          ? Icons.volume_down
+                          : Icons.volume_up,
                       size: 18,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
+                      color: Theme.of(context).colorScheme.onSurface
                           .withValues(alpha: 0.6),
                     ),
                     onPressed: () =>
@@ -104,14 +104,16 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                     child: SliderTheme(
                       data: SliderThemeData(
                         trackHeight: 3,
-                        thumbShape:
-                            const RoundSliderThumbShape(enabledThumbRadius: 6),
-                        overlayShape:
-                            const RoundSliderOverlayShape(overlayRadius: 12),
-                        activeTrackColor:
-                            Theme.of(context).colorScheme.primary,
-                        inactiveTrackColor:
-                            Theme.of(context).colorScheme.surfaceContainerHighest,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 12,
+                        ),
+                        activeTrackColor: Theme.of(context).colorScheme.primary,
+                        inactiveTrackColor: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         thumbColor: Theme.of(context).colorScheme.primary,
                       ),
                       child: Slider(
@@ -128,9 +130,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                       textAlign: TextAlign.right,
                       style: TextStyle(
                         fontSize: 11,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
+                        color: Theme.of(context).colorScheme.onSurface
                             .withValues(alpha: 0.6),
                       ),
                     ),
@@ -150,119 +150,160 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               },
               behavior: HitTestBehavior.opaque,
               child: Row(
-              children: [
-                // Album art.
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(8),
+                children: [
+                  // Album art.
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _buildMiniAlbumArt(context),
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _buildMiniAlbumArt(context),
-                ),
-                const SizedBox(width: 10),
-                // Track title and artist.
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        state.currentTitle,
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        state.currentArtist,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withOpacity(0.6),
+                  const SizedBox(width: 10),
+                  // Track title and artist.
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          state.currentTitle,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        Text(
+                          state.currentArtist,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context).colorScheme.onSurface
+                                .withOpacity(0.6),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Queue count badge — tap opens the player page's Up Next list.
+                  if (state.queue.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: GestureDetector(
+                        onTap: () {
+                          if (ModalRoute.of(context)?.settings.name !=
+                              '/player') {
+                            Navigator.pushNamed(context, '/player');
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .secondaryContainer,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.queue_music,
+                                size: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSecondaryContainer,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                '${state.queue.length}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSecondaryContainer,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-                // Playback controls.
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: IconButton(
-                    icon: const Icon(Icons.skip_previous, size: 24),
-                    onPressed: () => ref
-                        .read(audioPlayerProvider.notifier)
-                        .seekToPrevious(),
-                  ),
-                ),
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: IconButton(
-                    icon: Icon(
-                      state.isPlaying
-                          ? Icons.pause_circle_filled
-                          : Icons.play_circle_filled,
-                      size: 40,
                     ),
-                    color: Theme.of(context).colorScheme.primary,
-                    onPressed: () =>
-                        ref.read(audioPlayerProvider.notifier).playOrPause(),
-                  ),
-                ),
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: IconButton(
-                    icon: const Icon(Icons.skip_next, size: 24),
-                    onPressed: () => ref
-                        .read(audioPlayerProvider.notifier)
-                        .seekToNext(),
-                  ),
-                ),
-                // Volume toggle — shows/hides the volume slider row.
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: IconButton(
-                    icon: Icon(
-                      state.volume == 0
-                          ? Icons.volume_off
-                          : state.volume < 0.5
-                              ? Icons.volume_down
-                              : Icons.volume_up,
-                      size: 22,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(
-                              alpha: _showVolume ? 1.0 : 0.5),
+                  // Playback controls.
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: IconButton(
+                      icon: const Icon(Icons.skip_previous, size: 24),
+                      onPressed: () => ref
+                          .read(audioPlayerProvider.notifier)
+                          .seekToPrevious(),
                     ),
-                    onPressed: () =>
-                        setState(() => _showVolume = !_showVolume),
                   ),
-                ),
-                // Close button.
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.close,
-                      size: 20,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withOpacity(0.5),
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: IconButton(
+                      icon: Icon(
+                        state.isPlaying
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_filled,
+                        size: 40,
+                      ),
+                      color: Theme.of(context).colorScheme.primary,
+                      onPressed: () =>
+                          ref.read(audioPlayerProvider.notifier).playOrPause(),
                     ),
-                    onPressed: () => ref
-                        .read(audioPlayerProvider.notifier)
-                        .stopAndClear(),
                   ),
-                ),
-              ],
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: IconButton(
+                      icon: const Icon(Icons.skip_next, size: 24),
+                      onPressed: () =>
+                          ref.read(audioPlayerProvider.notifier).seekToNext(),
+                    ),
+                  ),
+                  // Volume toggle — shows/hides the volume slider row.
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: IconButton(
+                      icon: Icon(
+                        state.volume == 0
+                            ? Icons.volume_off
+                            : state.volume < 0.5
+                            ? Icons.volume_down
+                            : Icons.volume_up,
+                        size: 22,
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: _showVolume ? 1.0 : 0.5),
+                      ),
+                      onPressed: () =>
+                          setState(() => _showVolume = !_showVolume),
+                    ),
+                  ),
+                  // Close button.
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withOpacity(0.5),
+                      ),
+                      onPressed: () =>
+                          ref.read(audioPlayerProvider.notifier).stopAndClear(),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
