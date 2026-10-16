@@ -338,6 +338,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           state = state.copyWith(
             processing: false,
             error: 'Failed to play: $e',
+            errorCanRetry: true,
           );
         }
       }
@@ -801,6 +802,18 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     state = state.copyWith(error: null);
   }
 
+  /// Re-attempts the current track after a retryable failure. Keeps the
+  /// existing queue so the rest of the session is preserved.
+  Future<void> retryCurrent() async {
+    if (state.queue.isEmpty) return;
+    final index = state.currentIndex.clamp(0, state.queue.length - 1);
+    await playTrack(
+      state.queue[index],
+      fromQueue: state.queue,
+      startIndex: index,
+    );
+  }
+
   AudioPlayer get player => _player;
 
   @override
@@ -845,6 +858,10 @@ class AudioPlayerState {
   final String? currentUrl;
   final List<Track> queue;
   final String? error;
+
+  /// True when [error] is a final playback failure the user can retry
+  /// (auto-retries are exhausted). Transient messages don't set it.
+  final bool errorCanRetry;
   final double volume;
 
   AudioPlayerState({
@@ -862,6 +879,7 @@ class AudioPlayerState {
     this.currentUrl,
     this.queue = const [],
     this.error,
+    this.errorCanRetry = false,
     this.volume = 1.0,
   });
 
@@ -880,6 +898,7 @@ class AudioPlayerState {
     String? currentUrl,
     List<Track>? queue,
     String? error,
+    bool? errorCanRetry,
     double? volume,
   }) {
     return AudioPlayerState(
@@ -897,6 +916,7 @@ class AudioPlayerState {
       currentUrl: currentUrl ?? this.currentUrl,
       queue: queue ?? this.queue,
       error: error,
+      errorCanRetry: errorCanRetry ?? false,
       volume: volume ?? this.volume,
     );
   }

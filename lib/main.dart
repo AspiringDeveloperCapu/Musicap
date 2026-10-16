@@ -142,6 +142,35 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
 
+  /// Shows a dialog for a final failure ([message]) with Retry/Cancel.
+  /// [onRetry] re-attempts the failed action; Cancel just dismisses.
+  void _showRetryDialog({
+    required String title,
+    required String message,
+    required VoidCallback onRetry,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              onRetry();
+            },
+            child: const Text('Try Again'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Back-press handler: pause playback and ask for confirmation before
   /// leaving. Exit also stops the audio service so the media notification
   /// doesn't linger after the app is gone.
@@ -188,32 +217,45 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       ref.read(audioPlayerProvider.notifier).setSpeed(next);
     });
 
-    // Show error snackbar if the player encounters an error, then clear it.
+    // Playback failures: final errors (auto-retries exhausted) get a
+    // retry dialog; transient messages (e.g. "retrying 1/3") stay as
+    // brief snackbars.
     if (state.error != null && mounted) {
+      final canRetry = state.errorCanRetry;
+      final message = state.error!;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(state.error!),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
         ref.read(audioPlayerProvider.notifier).clearError();
+        if (canRetry) {
+          _showRetryDialog(
+            title: 'Playback failed',
+            message: message,
+            onRetry: () =>
+                ref.read(audioPlayerProvider.notifier).retryCurrent(),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       });
     }
 
-    // Show download failure snackbars, then clear them.
+    // Download failures always get a retry dialog — they're final.
     final downloadError = ref.watch(downloadErrorProvider);
     if (downloadError != null && mounted) {
+      final (message, track) = downloadError;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(downloadError),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
         ref.read(downloadErrorProvider.notifier).state = null;
+        _showRetryDialog(
+          title: 'Download failed',
+          message: message,
+          onRetry: () =>
+              ref.read(downloadManagerProvider.notifier).startDownload(track),
+        );
       });
     }
 

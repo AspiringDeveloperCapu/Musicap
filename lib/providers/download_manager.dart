@@ -11,9 +11,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _kDownloadsKey = 'downloads.v1';
 
-/// Transient download error surfaced to the UI (shown as a snackbar by
-/// MainScreen, which clears it after display).
-final downloadErrorProvider = StateProvider<String?>((ref) => null);
+/// Transient download failure surfaced to the UI. Carries the track so
+/// the retry dialog can re-run the download.
+final downloadErrorProvider = StateProvider<(String message, Track track)?>(
+  (ref) => null,
+);
 
 /// Tracks the download status of individual tracks.
 enum DownloadStatus { notDownloaded, downloading, downloaded, canceled }
@@ -272,8 +274,8 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
             progress: 0.0,
           ),
         };
-        _ref.read(downloadErrorProvider.notifier).state = _friendlyDioError(
-          e,
+        _ref.read(downloadErrorProvider.notifier).state = (
+          _friendlyDioError(e, track),
           track,
         );
       }
@@ -288,8 +290,10 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
             progress: 0.0,
           ),
         };
-        _ref.read(downloadErrorProvider.notifier).state =
-            'Download failed for "${track.title}" — check your connection and retry';
+        _ref.read(downloadErrorProvider.notifier).state = (
+          'Download failed for "${track.title}" — check your connection and retry',
+          track,
+        );
       }
     }
   }
