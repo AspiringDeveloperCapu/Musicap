@@ -146,6 +146,12 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
           final path = dl.filePath;
           if (path != null && !fileExists(path)) continue;
           restored[dl.videoId ?? dl.title] = dl;
+          final vid = dl.videoId;
+          if (vid != null && vid.isNotEmpty && path != null && path.isNotEmpty) {
+            // Local-first playback: register the saved file so resolve()
+            // plays it instead of streaming.
+            StreamResolver.localFiles[vid] = path;
+          }
         }
         state = {...restored, ...state};
       } catch (_) {
@@ -262,6 +268,11 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
         ),
       };
       _save();
+      // Local-first playback from here on.
+      final vid = track.videoId ?? track.id;
+      if (path != null && path.isNotEmpty) {
+        StreamResolver.localFiles[vid] = path;
+      }
     } on DioException catch (e) {
       // Canceled or network failure — keep canceled state if set,
       // otherwise reset so the user can retry.
@@ -334,7 +345,13 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
   /// Removes a track from the download list (keeps any saved file).
   void removeFromList(String trackId) {
     final updated = Map<String, DownloadState>.from(state);
-    updated.remove(trackId);
+    final removed = updated.remove(trackId);
+    // Drop the local-first registration — the track is no longer treated
+    // as a downloaded one even when the file itself is kept.
+    final vid = removed?.videoId;
+    if (vid != null && vid.isNotEmpty) {
+      StreamResolver.localFiles.remove(vid);
+    }
     state = updated;
     _save();
   }

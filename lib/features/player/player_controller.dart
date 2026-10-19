@@ -42,6 +42,20 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// Guards against overlapping autoplay fetches.
   bool _autoplayLoading = false;
 
+  /// True while a retry of autoplay is scheduled — the stalled-at-end
+  /// watchdog must not fire into the same failure loop the retry already
+  /// covers.
+  bool _autoplayPending = false;
+  Timer? _autoplayRetryTimer;
+
+  /// Position at the previous watchdog tick, used to detect a player
+  /// frozen at the end of the last track between ticks.
+  Duration? _lastStallPos;
+
+  /// Set when the controller is disposed so pending autoplay timers and
+  /// late stream callbacks can't touch a dead player.
+  bool _disposed = false;
+
   /// True when the current track is within 1s of its end. Used by the
   /// watchdog below: if the player drops to idle without ever emitting
   /// `completed` (e.g. the last track errored out), we still know the
@@ -80,6 +94,16 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     );
   }
 
+  /// debugPrint is a no-op in release builds — print() survives, keeping
+  /// playback diagnostics visible in `adb logcat` for shipped APKs.
+  void _log(String msg) {
+    if (kDebugMode) {
+      debugPrint(msg);
+    } else {
+      print(msg);
+    }
+  }
+
   /// Sets up stream listeners on the AudioPlayer to keep AudioPlayerState
   /// in sync with the underlying player's position, duration, current index,
   /// and playback state.
@@ -90,6 +114,36 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     if (handler != null) {
       handler.onQueueExhausted = () => _autoplayRelated();
     }
+
+    // Stalled-at-end watchdog: ExoPlayer can reach the end of the last
+    // item without ever emitting `completed` — it stays "playing" with
+    // the position pinned at the track's end, which the stream-based
+    // checks below miss because the playing flag never turns off. Parked
+    // at the end (frozen or paused), with nowhere else to go, means the
+    // queue is exhausted: pull related music.
+    Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_disposed || _autoplayLoading || _autoplayPending) return;
+      if (!_nearTrackEnd) {
+        _lastStallPos = null;
+        return;
+      }
+      if (_player.hasNext || state.loopMode != LoopMode.off) return;
+      if (state.queue.isEmpty) return;
+      final position = _player.position;
+      if (_player.playing) {
+        // Still advancing — the natural completion path handles it.
+        if (position != _lastStallPos) {
+          _lastStallPos = position;
+          return;
+        }
+      } else {
+        _lastStallPos = null;
+      }
+      _lastStallPos = null;
+      _nearTrackEnd = false;
+      state = state.copyWith(isPlaying: false);
+      unawaited(_autoplayRelated());
+    });
 
     // Update current position as the track plays.
     _player.positionStream.listen((position) {
@@ -120,6 +174,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           hasNext: _player.hasNext,
           hasPrevious: _player.hasPrevious,
         );
+        // If the slot we just entered is still a silence placeholder
+        // (its background fill never swapped the real stream in), give
+        // it one last chance from cache/disk — otherwise skip the dead
+        // air so the queue keeps moving.
+        unawaited(_maybeSkipSilence(index, track));
       }
     });
 
@@ -150,7 +209,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       // Watchdog: the last track reached its end (or errored right at the
       // end) but `completed` never fired, so the queue-exhausted branch
       // above was missed. Trigger autoplay anyway so playback continues.
-      if (playerState.processingState == ProcessingState.idle &&
+      if ((playerState.processingState == ProcessingState.idle ||
+              playerState.processingState == ProcessingState.ready) &&
           !playerState.playing &&
           _nearTrackEnd &&
           !_player.hasNext &&
@@ -268,7 +328,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     Track track, {
     List<Track>? fromQueue,
     int? startIndex,
-  }) async {
+    }) async {
+    // User playback takes over — drop any pending autoplay retry.
+    _cancelAutoplayRetry();
     final queue = fromQueue ?? [track];
     final index = (startIndex ?? queue.indexOf(track)).clamp(
       0,
@@ -327,7 +389,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         unawaited(_fillQueueSources(queue, index, gen));
         return;
       } catch (e) {
-        debugPrint('[playTrack] attempt $attempt/$maxAttempts failed: $e');
+        _log('[playTrack] attempt $attempt/$maxAttempts failed: $e');
         if (gen != _queueGeneration) return;
         if (attempt < maxAttempts) {
           state = state.copyWith(
@@ -494,6 +556,50 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// When the queue runs out, fetch tracks related to the last played song
   /// and continue playback with them. Uses the backend radio on web/desktop;
   /// serverless Android falls back to an on-device search for similar music.
+  /// Reentrancy guard so concurrent index events don't double-skip.
+  bool _silenceSkipping = false;
+
+  /// A silence placeholder that reaches the front (its background fill
+  /// never replaced it — e.g. YouTube rate-limited the resolution) plays
+  /// ~30s of dead air before the queue moves on. Give the slot one
+  /// last-chance resolve (cache/disk URLs work even during a cooldown);
+  /// if that fails too, skip past it instead of sitting silently.
+  Future<void> _maybeSkipSilence(int index, Track track) async {
+    if (_silenceSkipping || _disposed) return;
+    final source = _audioSource;
+    if (source == null) return;
+    final seq = source.sequence;
+    final slot = seq.indexWhere(
+      (s) => s.tag is MediaItem && (s.tag as MediaItem).id == track.id,
+    );
+    if (slot < 0 || seq[slot] is! SilenceAudioSource) return;
+    _silenceSkipping = true;
+    try {
+      _log('[queue] silence slot reached (${track.title}) — last-chance resolve');
+      final url = await StreamResolver.instance.resolve(track);
+      if (_disposed) return;
+      await _replacePending(track, url, _queueGeneration);
+      if (_player.currentIndex == index) {
+        await _player.seek(Duration.zero, index: index);
+      }
+    } catch (e) {
+      _log('[queue] silence slot unresolvable (${track.title}) — skipping: $e');
+      try {
+        if (_player.hasNext) {
+          await _player.seek(Duration.zero, index: index + 1);
+        } else {
+          state = state.copyWith(isPlaying: false, processing: false);
+          await _player.pause();
+          unawaited(_autoplayRelated());
+        }
+      } catch (_) {
+        // Seek raced another state change — the watchdogs cover it.
+      }
+    } finally {
+      _silenceSkipping = false;
+    }
+  }
+
   Future<void> _autoplayRelated() async {
     final enabled = _ref.read(
       settingsProvider.select((s) => s.autoplayRelated),
@@ -544,7 +650,13 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           // Related feed unavailable — let playback end quietly.
         }
       }
-      if (fresh.isEmpty) return;
+      if (fresh.isEmpty) {
+        // Feed empty or unreachable — schedule a retry so playback
+        // resumes when it recovers instead of stopping for good.
+        _log('[autoplay] related feed empty — scheduling retry');
+        _scheduleAutoplayRetry();
+        return;
+      }
 
       // While the player is still in its ended state with playback flag on,
       // ExoPlayer auto-jumps into whatever is appended next — combined with
@@ -574,37 +686,105 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         for (var i = 0; i < toResolve.length; i++)
           if (urls[i].isNotEmpty) (toResolve[i], urls[i]),
       ];
-      debugPrint(
+      _log(
         '[autoplay] resolved ${playable.length}/${toResolve.length} streams',
       );
       if (playable.isEmpty) {
         state = state.copyWith(
           error: 'YouTube is busy — related music will resume shortly',
         );
+        _scheduleAutoplayRetry();
         return;
       }
-      await _audioSource!.addAll([
-        for (final (track, url) in playable)
-          AudioSource.uri(Uri.parse(url), tag: _mediaItem(track)),
-      ]);
-      // Any unresolved fresh tracks stay out of the queue for now.
-      state = state.copyWith(
-        queue: [...state.queue, ...playable.map((p) => p.$1)],
-      );
+      // Append the playable related tracks via a full timeline rebuild.
+      // Plain ConcatenatingAudioSource.addAll kept failing in release
+      // sessions with a runtime type error deep inside just_audio's
+      // dynamic-children handling (List<AudioSource> vs
+      // Iterable<IndexedAudioSource>), and rebuilding is cheap here: every
+      // previously played slot re-resolves from the resolver's in-memory
+      // or disk cache instead of touching YouTube again.
+      final appended = playable.map((p) => p.$1).toList();
+      final newQueue = [...state.queue, ...appended];
+      _cancelAutoplayRetry();
+      state = state.copyWith(queue: newQueue);
       _saveQueue();
-
-      // Step into the appended tail and resume. When the player is in
-      // completed state seekToNext is unreliable — jump to the first
-      // appended index explicitly, then play.
-      final nextIndex = (_player.currentIndex ?? state.queue.length - 1) + 1;
-      await _player.seek(Duration.zero, index: nextIndex);
-      await _player.play();
-      _updateState();
+      await _rebuildQueue(newQueue, newQueue.length - appended.length);
     } catch (e) {
-      debugPrint('[autoplay] append/play failed: $e');
+      _log('[autoplay] append/play failed: $e');
+      _log('[autoplay] stack: ${StackTrace.current}');
+      _scheduleAutoplayRetry();
     } finally {
       _autoplayLoading = false;
     }
+  }
+
+  /// Rebuilds the entire player timeline from [queue] starting at
+  /// [startIndex]. Each slot resolves through the resolver first — cache
+  /// hits (memory or disk) attach their real stream without touching
+  /// YouTube; anything unresolvable falls back to a silence placeholder,
+  /// which the fill logic and silence-skip handle as usual.
+  ///
+  /// Only used at queue-end append time, when the old timeline is already
+  /// spent — slots reload from cache in a beat.
+  Future<void> _rebuildQueue(List<Track> queue, int startIndex) async {
+    final gen = _queueGeneration;
+    final sources = <AudioSource>[];
+    for (var i = 0; i < queue.length; i++) {
+      String url;
+      try {
+        url = await StreamResolver.instance.resolve(queue[i]);
+      } catch (e) {
+        sources.add(
+          SilenceAudioSource(
+            tag: _mediaItem(queue[i]),
+            duration: queue[i].duration ?? const Duration(seconds: 30),
+          ),
+        );
+        _log('[queue] rebuild slot unresolved (${queue[i].title}): $e');
+        continue;
+      }
+      sources.add(AudioSource.uri(Uri.parse(url), tag: _mediaItem(queue[i])));
+    }
+    final concatenating = ConcatenatingAudioSource(children: sources);
+    if (gen != _queueGeneration) return;
+    _audioSource = concatenating;
+    await _player.setAudioSource(concatenating, initialIndex: startIndex);
+    await _player.play();
+    _updateState();
+  }
+
+  /// Schedules one retry after autoplay-related music failed to load
+  /// (rate limit, feed timeout). When the resolver is cooling down,
+  /// waits out the cooldown so the retry lands after YouTube is
+  /// reachable again instead of failing straight back into it.
+  void _scheduleAutoplayRetry() {
+    _autoplayRetryTimer?.cancel();
+    _autoplayPending = true;
+    final remaining = StreamResolver.instance.cooldownRemaining;
+    final delay = remaining > const Duration(seconds: 45)
+        ? remaining + const Duration(seconds: 5)
+        : const Duration(seconds: 60);
+    _log('[autoplay] retry scheduled in ${delay.inSeconds}s');
+    _autoplayRetryTimer = Timer(delay, () {
+      _autoplayRetryTimer = null;
+      final atEnd = !_disposed &&
+          state.queue.isNotEmpty &&
+          !_player.hasNext &&
+          state.loopMode == LoopMode.off;
+      _autoplayPending = false;
+      if (!atEnd) return;
+      _nearTrackEnd = false;
+      unawaited(_autoplayRelated());
+    });
+  }
+
+  /// Cancels any pending autoplay retry — the user started playback
+  /// themselves (playTrack) or playback is being torn down.
+  void _cancelAutoplayRetry() {
+    _autoplayRetryTimer?.cancel();
+    _autoplayRetryTimer = null;
+    _autoplayPending = false;
+    _lastStallPos = null;
   }
 
   /// Removes a track from the queue by index. Prevents removing the last
@@ -700,6 +880,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   /// Stops playback and clears the queue, hiding the mini player.
   Future<void> stopAndClear() async {
+    _cancelAutoplayRetry();
     await _player.stop();
     _audioSource = null;
     state = AudioPlayerState();
@@ -711,6 +892,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   /// persisted copy intact so the next launch restores where the user
   /// left off (paused).
   Future<void> exitPlayback() async {
+    _cancelAutoplayRetry();
     try {
       await _player.stop();
     } catch (_) {}
@@ -818,6 +1000,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   @override
   void dispose() {
+    _disposed = true;
+    _autoplayRetryTimer?.cancel();
     // Only dispose a player this controller created — the audio handler's
     // shared player outlives the controller.
     if (_ownsPlayer) {
@@ -921,3 +1105,4 @@ class AudioPlayerState {
     );
   }
 }
+

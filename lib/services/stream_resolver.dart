@@ -64,6 +64,13 @@ class StreamResolver {
   YoutubeExplode? _yt;
   DateTime? _coolingUntil;
 
+  /// Absolute paths of locally downloaded audio, registered by videoId.
+  /// DownloadManager populates this as downloads finish and during
+  /// startup hydration; resolve() hands back the local file for these
+  /// tracks so playback (and autoplay, and download-all resolution)
+  /// never re-fetches them from YouTube.
+  static final Map<String, String> localFiles = {};
+
   /// Escalates 90s → 3min → 7min → 15min across repeated rate-limits
   /// within a short window, backing off harder instead of repeatedly
   /// poking an IP that YouTube is already refusing.
@@ -85,6 +92,15 @@ class StreamResolver {
     _yt = null;
   }
 
+  /// Time left in an active rate-limit cooldown, so callers can schedule
+  /// retries after it expires instead of probing during the window.
+  Duration get cooldownRemaining {
+    final cooling = _coolingUntil;
+    if (cooling == null) return Duration.zero;
+    final left = cooling.difference(DateTime.now());
+    return left.isNegative ? Duration.zero : left;
+  }
+
   /// Returns the best playable audio URL for [track].
   ///
   /// Local files pass through untouched; platforms with a backend fall
@@ -99,27 +115,35 @@ class StreamResolver {
       return track.audioUrl;
     }
 
-    final now = DateTime.now();
-    final cooling = _coolingUntil;
-    if (cooling != null && now.isBefore(cooling)) {
-      if (usesBackend) return track.audioUrl;
-      throw ResolveException('YouTube is busy — try again in a moment');
+    // Local preference: a downloaded copy beats streaming — checked
+    // before the rate-limit cooldown so offline music keeps working
+    // while YouTube is unreachable entirely.
+    final localPath = localFiles[videoId];
+    if (localPath != null && localPath.isNotEmpty) {
+      return Uri.file(localPath).toString();
     }
 
     // Load the persisted cache once (no-op afterwards). A cached URL from
     // a previous session skips the YouTube request entirely.
     await (_diskLoad ??= _loadDiskCache());
 
+    final now = DateTime.now();
     String? url;
     final cached = _cache[videoId];
     if (cached != null) {
       if (now.isBefore(cached.expiresAt)) {
-        // Failure marker during backoff — skip straight to the fallback.
+        // Failure marker from a previous attempt for this track.
         if (cached.isFailure) {
+          final cooling = _coolingUntil;
           if (usesBackend) return track.audioUrl;
+          if (cooling != null && now.isBefore(cooling)) {
+            throw ResolveException('YouTube is busy — try again in a moment');
+          }
           throw ResolveException(
               'Couldn\'t load stream — wait a moment and try again');
         }
+        // A cached URL plays even while the rate-limit cooldown is
+        // active — it needs no talking to YouTube at all.
         url = cached.url;
       } else {
         _cache.remove(videoId);
@@ -127,6 +151,12 @@ class StreamResolver {
     }
 
     if (url == null) {
+      // Fresh resolution — wait out an active rate-limit cooldown first.
+      final cooling = _coolingUntil;
+      if (usesBackend) return track.audioUrl;
+      if (cooling != null && now.isBefore(cooling)) {
+        throw ResolveException('YouTube is busy — try again in a moment');
+      }
       try {
         url = await _resolveWithRetry(videoId);
         _store(videoId, _CachedUrl(url, now.add(_cacheTtl)));
