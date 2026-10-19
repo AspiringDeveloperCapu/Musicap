@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/services/music_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'stream_proxy_stub.dart'
@@ -49,7 +51,16 @@ class StreamResolver {
   /// resolution for the rest of the session.
   static const _maxCooldown = Duration(minutes: 15);
 
+  /// Successful resolutions are mirrored to disk so replaying a track
+  /// after an app restart doesn't re-request YouTube (googlevideo URLs
+  /// stay valid for hours; entries share the in-memory TTL for safety).
+  /// Failure markers stay in memory only.
+  static const _kDiskCacheKey = 'resolver.urlCache.v1';
+  static const _kDiskCacheMaxEntries = 200;
+
   final Map<String, _CachedUrl> _cache = {};
+  final Map<String, (String, int)> _diskEntries = {};
+  Future<void>? _diskLoad;
   YoutubeExplode? _yt;
   DateTime? _coolingUntil;
 
@@ -94,6 +105,10 @@ class StreamResolver {
       if (usesBackend) return track.audioUrl;
       throw ResolveException('YouTube is busy — try again in a moment');
     }
+
+    // Load the persisted cache once (no-op afterwards). A cached URL from
+    // a previous session skips the YouTube request entirely.
+    await (_diskLoad ??= _loadDiskCache());
 
     String? url;
     final cached = _cache[videoId];
@@ -209,6 +224,53 @@ class StreamResolver {
     _cache[videoId] = entry;
     final now = DateTime.now();
     _cache.removeWhere((_, e) => now.isAfter(e.expiresAt));
+    if (entry.isFailure) return; // Failure markers are session-only.
+    _diskEntries[videoId] = (entry.url, entry.expiresAt.millisecondsSinceEpoch);
+    unawaited(_persistDiskCache());
+  }
+
+  /// Restores cached URLs saved by a previous session. Expired and
+  /// corrupt entries are dropped; a bad payload just leaves the cache
+  /// empty.
+  Future<void> _loadDiskCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kDiskCacheKey);
+      if (raw == null) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      for (final entry in data.entries) {
+        final pair = entry.value as List;
+        final url = pair[0] as String;
+        final expiry = (pair[1] as num).toInt();
+        if (url.isEmpty || expiry <= nowMs) continue;
+        _diskEntries[entry.key] = (url, expiry);
+        _cache[entry.key] = _CachedUrl(
+            url, DateTime.fromMillisecondsSinceEpoch(expiry));
+      }
+    } catch (_) {
+      // Corrupt cache — start empty; new resolves repopulate it.
+    }
+  }
+
+  /// Writes the disk cache back, pruning expired entries and capping the
+  /// size. Best-effort — persistence problems never block resolution.
+  Future<void> _persistDiskCache() async {
+    try {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      _diskEntries.removeWhere((_, v) => v.$2 <= nowMs);
+      while (_diskEntries.length > _kDiskCacheMaxEntries) {
+        _diskEntries.remove(_diskEntries.keys.first);
+      }
+      final prefs = await SharedPreferences.getInstance();
+      final data = {
+        for (final e in _diskEntries.entries)
+          e.key: [e.value.$1, e.value.$2],
+      };
+      await prefs.setString(_kDiskCacheKey, jsonEncode(data));
+    } catch (_) {
+      // Nothing sensible to do — the in-memory cache still works.
+    }
   }
 }
 
