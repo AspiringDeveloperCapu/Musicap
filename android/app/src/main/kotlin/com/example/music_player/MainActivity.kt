@@ -128,11 +128,11 @@ class MainActivity : AudioServiceActivity() {
         return songs
     }
 
-    /// Writes bytes into the public Download/DaviCap folder. On Android 10+
+    /// Writes bytes into the public Download/Musicap folder. On Android 10+
     /// this goes through MediaStore so no storage permission is needed and
     /// the file is visible to file managers. Returns the absolute path.
     private fun saveToDownloads(filename: String, bytes: ByteArray, mimeType: String): String {
-        val dirName = "DaviCap"
+        val dirName = "Musicap"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, filename)

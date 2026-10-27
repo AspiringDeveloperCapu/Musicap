@@ -1,7 +1,7 @@
 # CSE101 Final Project Documentation
 
 ## Project Title
-**DaviCap — Music Player**
+**Musicap — Music Player**
 
 ## Project Category
 Android App — Project #16
@@ -10,7 +10,7 @@ Android App — Project #16
 
 ## Project Description
 
-DaviCap is a Flutter-based music player application for Android that allows users to browse music by genres and moods, search for songs with live suggestions, create and manage playlists, download tracks for offline playback, and enjoy full audio playback controls including background audio support. The app features a clean, modern Material 3 design with both dark and light themes, responsive layouts, and a persistent mini player for seamless music listening across all screens.
+Musicap is a Flutter-based music player application for Android that allows users to browse music by genres and moods, search for songs with live suggestions, create and manage playlists, download tracks for offline playback, and enjoy full audio playback controls including background audio support. The app features a clean, modern Material 3 design with both dark and light themes, responsive layouts, and a persistent mini player for seamless music listening across all screens.
 
 ---
 

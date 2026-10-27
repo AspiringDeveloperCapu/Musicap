@@ -694,7 +694,7 @@ class _DeviceMusicPageState extends ConsumerState<DeviceMusicPage> {
     return _emptyMessage(
       icon: Icons.folder_off,
       title:
-          'Allow DaviCap to access your music to list songs stored on this device.',
+          'Allow Musicap to access your music to list songs stored on this device.',
       actionLabel: 'Grant access',
       onAction: _loadLocal,
       secondaryLabel:

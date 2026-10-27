@@ -1,11 +1,11 @@
 {
-    "name": "DaviCap",
-    "short_name": "DaviCap",
+    "name": "Musicap",
+    "short_name": "Musicap",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#000000",
     "theme_color": "#000000",
-    "description": "DaviCap — a Flutter music player.",
+    "description": "Musicap — a Flutter music player.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

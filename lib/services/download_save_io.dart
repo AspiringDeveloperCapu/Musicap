@@ -20,7 +20,7 @@ Future<String?> _preferredDir() async {
 /// Default folder inside the app documents directory (desktop fallback).
 Future<String> _defaultDirPath() async {
   final docs = await getApplicationDocumentsDirectory();
-  return p.join(docs.path, 'DaviCap');
+  return p.join(docs.path, 'Musicap');
 }
 
 String _mimeTypeFor(String filename) {
@@ -35,7 +35,7 @@ String _mimeTypeFor(String filename) {
   return 'application/octet-stream';
 }
 
-/// IO implementation: on Android writes into the public Download/DaviCap
+/// IO implementation: on Android writes into the public Download/Musicap
 /// folder via MediaStore (visible to file managers, no scoped-storage
 /// denial). On desktop writes into the chosen save directory (or the
 /// default app folder when the user hasn't picked one).
@@ -87,7 +87,7 @@ Future<void> deleteFile(String path) async {
 
 /// Folder picker: Android's scoped storage makes picked raw paths
 /// unwritable, so the picker is desktop-only. Android always uses
-/// the fixed public Download/DaviCap folder.
+/// the fixed public Download/Musicap folder.
 bool get directoryPickerSupported => !Platform.isAndroid;
 
 Future<String?> pickDirectory() async {
@@ -109,6 +109,6 @@ Future<void> ensureDirectoryForDownload() async {}
 
 /// The folder downloads are written to (shown in Settings).
 Future<String?> directoryLabel() async {
-  if (Platform.isAndroid) return 'Download/DaviCap';
+  if (Platform.isAndroid) return 'Download/Musicap';
   return await _preferredDir() ?? await _defaultDirPath();
 }

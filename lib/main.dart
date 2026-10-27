@@ -117,9 +117,9 @@ class MusicPlayerApp extends ConsumerWidget {
     final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'DaviCap',
-      theme: ThemeData(primarySwatch: Colors.indigo, useMaterial3: true),
-      darkTheme: ThemeData.dark(useMaterial3: true),
+      title: 'Musicap',
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
       themeMode: themeMode,
       home: const MainScreen(),
       routes: {
@@ -128,6 +128,24 @@ class MusicPlayerApp extends ConsumerWidget {
       },
     );
   }
+}
+
+/// Builds the Musicap-branded theme in [brightness]. The seed teal is
+/// sampled from the Musicap logo gradient (~#0E5F52 → #2FD9C7) so both
+/// light and dark modes carry the brand color through Material 3.
+ThemeData _buildTheme(Brightness brightness) {
+  final scheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFF17A79B),
+    brightness: brightness,
+  );
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: scheme,
+    appBarTheme: AppBarTheme(backgroundColor: scheme.surface),
+    inputDecorationTheme: InputDecorationTheme(
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+  );
 }
 
 /// Main screen with a bottom navigation bar and a persistent mini player.
@@ -185,7 +203,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final exit = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Exit DaviCap?'),
+        title: const Text('Exit Musicap?'),
         content: Text(hadMusic ? 'Music will stop playing.' : 'Close the app?'),
         actions: [
           TextButton(
@@ -1183,13 +1201,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _sectionHeader('About'),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About DaviCap'),
+            title: const Text('About Musicap'),
             subtitle: const Text('Version 1.0.0'),
             onTap: () {
               showAboutDialog(
                 context: context,
-                applicationName: 'DaviCap',
+                applicationName: 'Musicap',
                 applicationVersion: '1.0.0',
+                applicationIcon: Image.asset(
+                  'assets/icon/musicap_light.png',
+                  width: 48,
+                  height: 48,
+                ),
                 children: [
                   const Text('A Flutter music player app.'),
                   const SizedBox(height: 8),
@@ -1226,7 +1249,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle: const Text('View open source licenses'),
             onTap: () => showLicensePage(
               context: context,
-              applicationName: 'DaviCap',
+              applicationName: 'Musicap',
               applicationVersion: '1.0.0',
             ),
           ),
@@ -1521,7 +1544,7 @@ Future<void> main() async {
       builder: () => MusicAudioHandler(),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.example.music_player.channel.audio',
-        androidNotificationChannelName: 'DaviCap',
+        androidNotificationChannelName: 'Musicap',
         androidNotificationOngoing: true,
         androidStopForegroundOnPause: true,
       ),

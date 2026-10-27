@@ -98,6 +98,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Branding assets (Musicap logo).
+  assets:
+    - assets/icon/musicap_light.png
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
@@ -130,7 +134,7 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
 flutter_launcher_icons:
-  image_path: "assets/icon/davicap_logo.png"
+  image_path: "assets/icon/musicap_dark.png"
   android: true
   ios: true
   adaptive_icon_background: "#000000"
