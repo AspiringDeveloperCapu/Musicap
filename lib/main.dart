@@ -394,16 +394,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.dispose();
   }
 
-  /// Syncs the search text field input to the Riverpod search query provider.
+  /// Syncs the search text field input to the Riverpod search query
+  /// provider, and returns to the dashboard as soon as the field goes
+  /// empty (no input = dashboard, per the search contract).
   void _onSearchChanged() {
     ref.read(searchQueryProvider.notifier).state = _searchController.text;
+    if (_searchController.text.trim().isEmpty) {
+      // Either the clear button or deleting the text — drop the
+      // committed query so the dashboard comes back.
+      ref.read(searchSubmittedProvider.notifier).state = '';
+    }
   }
 
-  /// Runs a search: fills the field, updates the query, saves to history,
-  /// and hides the keyboard.
+  /// Runs a search: fills the field, commits the query, saves to
+  /// history, and hides the keyboard.
   void _runSearch(String query) {
     _searchController.text = query;
     ref.read(searchQueryProvider.notifier).state = query;
+    ref.read(searchSubmittedProvider.notifier).state = query;
     ref.read(recentSearchesProvider.notifier).addSearch(query);
     _searchFocusNode.unfocus();
   }
@@ -433,6 +441,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         title: TextField(
           controller: _searchController,
           focusNode: _searchFocusNode,
+          textInputAction: TextInputAction.search,
           decoration: InputDecoration(
             hintText: 'Search tracks, artists...',
             border: InputBorder.none,
@@ -442,15 +451,20 @@ class _HomePageState extends ConsumerState<HomePage> {
                     icon: const Icon(Icons.clear),
                     onPressed: () {
                       _searchController.clear();
+                      _searchFocusNode.unfocus();
                     },
                   )
                 : null,
           ),
           onSubmitted: (value) {
-            if (value.trim().isNotEmpty) {
-              ref.read(recentSearchesProvider.notifier).addSearch(value);
-              _searchFocusNode.unfocus();
+            final query = value.trim();
+            if (query.isNotEmpty) {
+              // Results only load now — tapping the search action is
+              // what triggers the YouTube fetch, not the typing.
+              ref.read(searchSubmittedProvider.notifier).state = query;
+              ref.read(recentSearchesProvider.notifier).addSearch(query);
             }
+            _searchFocusNode.unfocus();
           },
         ),
         actions: [
@@ -458,20 +472,19 @@ class _HomePageState extends ConsumerState<HomePage> {
           _DownloadIcon(),
         ],
       ),
-      // Search results while typing, recent searches while focused on an
-      // empty field, otherwise the dashboard.
-      body: _buildBody(searchResultsAsync, query),
+      // Search results only after the search action was tapped; with no
+      // input in the field the dashboard is shown instead of anything
+      // search-related.
+      body: _buildBody(searchResultsAsync, ref.watch(searchSubmittedProvider)),
     );
   }
 
-  Widget _buildBody(AsyncValue<List<Track>> resultsAsync, String query) {
-    if (query.isNotEmpty) {
-      return _buildSearchResults(resultsAsync, query);
-    }
-    // Recent searches replace the dashboard while the field is focused
-    // (falls back to the dashboard when history is empty).
-    if (_searchFocusNode.hasFocus) {
-      return _buildRecentSearches();
+  Widget _buildBody(
+    AsyncValue<List<Track>> resultsAsync,
+    String submittedQuery,
+  ) {
+    if (submittedQuery.trim().isNotEmpty) {
+      return _buildSearchResults(resultsAsync, submittedQuery);
     }
     return _buildDashboard();
   }
@@ -604,45 +617,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         );
       },
-    );
-  }
-
-  /// History list shown when the search field is focused but empty.
-  Widget _buildRecentSearches() {
-    final recents = ref.watch(recentSearchesProvider);
-    if (recents.isEmpty) return _buildDashboard();
-
-    return ListView(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Recent searches',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              TextButton(
-                onPressed: () =>
-                    ref.read(recentSearchesProvider.notifier).clear(),
-                child: const Text('Clear all'),
-              ),
-            ],
-          ),
-        ),
-        for (final query in recents)
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: Text(query),
-            trailing: IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () =>
-                  ref.read(recentSearchesProvider.notifier).removeSearch(query),
-            ),
-            onTap: () => _runSearch(query),
-          ),
-      ],
     );
   }
 

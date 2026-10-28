@@ -141,9 +141,17 @@ final playlistsProvider = Provider<List<Playlist>>((ref) {
 /// Mutable state provider for the current search query text.
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
-/// Debounced search provider — calls the backend API with a delay.
+/// The query the user actually committed by tapping the search action.
+/// Results are fetched for committed queries only: typing alone never
+/// fires a YouTube search request, and clearing the field returns to
+/// the dashboard.
+final searchSubmittedProvider = StateProvider<String>((ref) => '');
+
+/// Search results for the last *committed* query. Nothing runs while
+/// the user is still typing — the field may trigger autocomplete
+/// suggestions, but the results fetch waits for the search action.
 final searchResultsProvider = FutureProvider<List<Track>>((ref) async {
-  final query = ref.watch(searchQueryProvider);
+  final query = ref.watch(searchSubmittedProvider);
   if (query.isEmpty) return [];
 
   // Wait 500ms for the user to stop typing.
