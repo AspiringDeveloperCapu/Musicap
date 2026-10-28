@@ -22,6 +22,10 @@ import 'providers/settings_provider.dart';
 import 'models/genre.dart';
 import 'models/track.dart';
 import 'services/music_api.dart';
+import 'services/app_updater.dart';
+import 'services/update_install_stub.dart'
+    if (dart.library.js_interop) 'package:music_player/services/update_install_stub.dart'
+    if (dart.library.io) 'package:music_player/services/update_install_io.dart';
 import 'services/download_save_stub.dart'
     if (dart.library.js_interop) 'package:music_player/services/download_save_web.dart'
     if (dart.library.io) 'package:music_player/services/download_save_io.dart';
@@ -1173,15 +1177,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
           // About section.
           _sectionHeader('About'),
+          if (defaultTargetPlatform == TargetPlatform.android && !kIsWeb)
+            ListTile(
+              leading: _checkingUpdate
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.system_update),
+              title: const Text('Check for updates'),
+              subtitle: Text('Current version ${AppUpdater.currentVersion}'),
+              onTap: _checkingUpdate ? null : _checkForUpdates,
+            ),
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('About Musicap'),
-            subtitle: const Text('Version 1.0.0'),
+            subtitle: Text('Version ${AppUpdater.currentVersion}'),
             onTap: () {
               showAboutDialog(
                 context: context,
                 applicationName: 'Musicap',
-                applicationVersion: '1.0.0',
+                applicationVersion: AppUpdater.currentVersion,
                 applicationIcon: Image.asset(
                   'assets/icon/musicap_light.png',
                   width: 48,
@@ -1224,12 +1241,164 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             onTap: () => showLicensePage(
               context: context,
               applicationName: 'Musicap',
-              applicationVersion: '1.0.0',
+              applicationVersion: AppUpdater.currentVersion,
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// Serverless in-app updates: GitHub hosts the release APK, the app
+  /// checks its Releases API, downloads and hands it to Android's
+  /// installer. Modern emulators open the sideload prompt directly.
+  bool _checkingUpdate = false;
+
+  /// Asks GitHub whether a newer Musicap release exists and reports the
+  /// outcome in a dialog/snackbar.
+  Future<void> _checkForUpdates() async {
+    setState(() => _checkingUpdate = true);
+    final release = await AppUpdater.checkLatest();
+    if (!mounted) return;
+    setState(() => _checkingUpdate = false);
+
+    if (release == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't check for updates - check your connection"),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (!AppUpdater.isNewer(release.version, AppUpdater.currentVersion)) {
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("You're up to date"),
+          content: Text(
+            'Musicap ${AppUpdater.currentVersion} is the latest released '
+            'version.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await _showUpdateAvailableDialog(release);
+  }
+
+  /// Newer release exists: show what changed and offer the APK download.
+  Future<void> _showUpdateAvailableDialog(RemoteRelease release) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Update available'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${release.name} (${release.tag})'),
+            if (release.notes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Flexible(child: SingleChildScrollView(child: Text(release.notes))),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              'Installed version: ${AppUpdater.currentVersion}\n'
+              "You'll download the APK and Android will ask to install it.",
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              launchUrl(Uri.parse(release.pageUrl));
+            },
+            child: const Text('View on GitHub'),
+          ),
+          if (release.hasApk())
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _downloadUpdate(release);
+              },
+              child: const Text('Download update'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Downloads the release APK (with a progress dialog) and, when it
+  /// lands intact, opens Android's installer for it.
+  Future<void> _downloadUpdate(RemoteRelease release) async {
+    var progress = 0.0;
+    void Function(void Function())? setDialogState;
+    final progressDialog = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, set) {
+          setDialogState = set;
+          return AlertDialog(
+            title: Text('Downloading ${release.name}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(
+                  value: progress > 0 ? progress.clamp(0.0, 1.0) : null,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  progress > 0
+                      ? '${(progress * 100).toStringAsFixed(0)}%'
+                      : 'Starting...'
+                      '${progress >= 0.99 ? ' - launching installer...' : ''}',
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    final opened = await downloadAndPromptApk(
+      release,
+      onProgress: (value) {
+        progress = value;
+        setDialogState?.call(() {});
+      },
+    );
+    await progressDialog;
+    if (!mounted) return;
+
+    if (opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              "Installer opened - Android will ask to install the update"),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Couldn't download the update"),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Open GitHub',
+            onPressed: () => launchUrl(Uri.parse(release.pageUrl)),
+          ),
+        ),
+      );
+    }
   }
 
   /// Leading icon for the Backend Address tile: colored by reachability.

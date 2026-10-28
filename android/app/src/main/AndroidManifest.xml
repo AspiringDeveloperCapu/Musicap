@@ -8,6 +8,10 @@
         android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
+    <!-- The in-app updater: hands the downloaded release APK to Android's
+         installer. Android gates the actual install behind the
+         "install unknown apps for Musicap" switch, walked through once. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="Musicap"
         android:usesCleartextTraffic="true"
