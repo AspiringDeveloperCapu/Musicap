@@ -241,12 +241,18 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
     // Playback failures: final errors (auto-retries exhausted) get a
     // retry dialog; transient messages (e.g. "retrying 1/3") stay as
-    // brief snackbars.
-    if (state.error != null && mounted) {
-      final canRetry = state.errorCanRetry;
-      final message = state.error!;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    // brief snackbars. ref.listen catches every state change (even ones
+    // the build-time check would miss when the queue advances fast and
+    // clears the error before this widget rebuilds).
+    ref.listen(
+      audioPlayerProvider.select(
+        (s) => (s.error, s.errorCanRetry),
+      ),
+      (previous, next) {
+        final (message, canRetry) = next;
+        if (message == null) return;
         ref.read(audioPlayerProvider.notifier).clearError();
+        if (!context.mounted) return;
         if (canRetry) {
           _showRetryDialog(
             title: 'Playback failed',
@@ -263,8 +269,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             ),
           );
         }
-      });
-    }
+      },
+    );
 
     // Download failures always get a retry dialog — they're final.
     final downloadError = ref.watch(downloadErrorProvider);

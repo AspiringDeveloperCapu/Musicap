@@ -17,7 +17,7 @@ class AppUpdater {
 
   static const _repo = 'AspiringDeveloperCapu/Musicap';
 
-  static const currentVersion = '1.1.1';
+  static const currentVersion = '1.1.2';
 
   /// A semver-ish comparison: "1.2" / "1.2.0" / "v1.2.1" all parse.
   /// Returns true when [candidate] is strictly newer than [current].
