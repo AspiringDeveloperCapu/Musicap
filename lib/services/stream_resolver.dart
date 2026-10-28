@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/services/music_api.dart';
+import 'package:music_player/services/youtube_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
@@ -60,11 +62,17 @@ class StreamResolver {
   static const _kDiskCacheKey = 'resolver.urlCache.v1';
   static const _kDiskCacheMaxEntries = 200;
 
+  /// The rate-limit cooldown deadline is mirrored to disk as well, so an
+  /// app restart right after a trip doesn't race back into YouTube while
+  /// it is still refusing us — previously a restart reset the cooldown
+  /// and the resumed queue went straight back to hammering.
+  static const _kCooldownKey = 'resolver.cooldown.v1';
+
   final Map<String, _CachedUrl> _cache = {};
   final Map<String, (String, int)> _diskEntries = {};
   Future<void>? _diskLoad;
-  YoutubeExplode? _yt;
   DateTime? _coolingUntil;
+  final Random _pacing = Random();
 
   /// Absolute paths of locally downloaded audio, registered by videoId.
   /// DownloadManager populates this as downloads finish and during
@@ -90,8 +98,24 @@ class StreamResolver {
     var cooldown = _rateLimitCooldown * (1 << (_rateLimitStrikes - 1).clamp(0, 4));
     if (cooldown > _maxCooldown) cooldown = _maxCooldown;
     _coolingUntil = now.add(cooldown);
-    _yt?.close();
-    _yt = null;
+    unawaited(_persistCooldown());
+    YoutubeClientPool.instance.reset();
+  }
+
+  /// Restores the cooldown deadline persisted by [_tripRateLimit].
+  /// Best-effort — persistence problems never block resolution.
+  Future<void> _persistCooldown() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final until = _coolingUntil;
+      if (until == null) {
+        await prefs.remove(_kCooldownKey);
+      } else {
+        await prefs.setInt(_kCooldownKey, until.millisecondsSinceEpoch);
+      }
+    } catch (_) {
+      // Nothing sensible to do — the in-memory state still works.
+    }
   }
 
   /// Time left in an active rate-limit cooldown, so callers can schedule
@@ -256,14 +280,17 @@ class StreamResolver {
         // Unresolvable track — leave '' and keep going.
       }
       if (i < tracks.length - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 800));
+        // Pacing between fetches, jittered so a batch doesn't march at a
+        // perfectly machine-regular cadence.
+        await Future<void>.delayed(
+            Duration(milliseconds: 600 + _pacing.nextInt(900)));
       }
     }
     return urls;
   }
 
   Future<String> _resolve(String videoId) async {
-    final yt = _yt ??= YoutubeExplode();
+    final yt = YoutubeClientPool.instance.use();
     final manifest = await yt.videos.streamsClient.getManifest(videoId);
 
     // Prefer standalone audio streams; muxed (audio+video) as a last resort.
@@ -287,8 +314,8 @@ class StreamResolver {
     try {
       return await _resolve(videoId).timeout(_resolveTimeout);
     } on TimeoutException {
-      _yt?.close();
-      _yt = null;
+      // A hung request poisons the shared pool — continue on a fresh one.
+      YoutubeClientPool.instance.reset();
       return await _resolve(videoId).timeout(_resolveTimeout);
     }
   }
@@ -302,12 +329,23 @@ class StreamResolver {
     unawaited(_persistDiskCache());
   }
 
-  /// Restores cached URLs saved by a previous session. Expired and
-  /// corrupt entries are dropped; a bad payload just leaves the cache
-  /// empty.
+  /// Restores cached URLs saved by a previous session and any active
+  /// rate-limit cooldown. Expired and corrupt entries are dropped; a bad
+  /// payload just leaves the cache empty.
   Future<void> _loadDiskCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final coolingMs = prefs.getInt(_kCooldownKey);
+      if (coolingMs != null) {
+        final until = DateTime.fromMillisecondsSinceEpoch(coolingMs);
+        if (until.isAfter(DateTime.now())) {
+          _coolingUntil = until;
+          // Start with a clean session even if this process is new.
+          YoutubeClientPool.instance.reset();
+        } else {
+          unawaited(_persistCooldown());
+        }
+      }
       final raw = prefs.getString(_kDiskCacheKey);
       if (raw == null) return;
       final data = jsonDecode(raw) as Map<String, dynamic>;
