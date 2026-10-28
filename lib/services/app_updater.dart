@@ -66,12 +66,14 @@ class AppUpdater {
       // The APK asset to offer the user (ignore other attachments).
       String? apkUrl;
       String? apkName;
+      int? apkSize;
       for (final asset in (data['assets'] as List<dynamic>? ?? const [])) {
         final name = asset['name'] as String? ?? '';
         final url = asset['browser_download_url'] as String?;
         if (url != null && name.toLowerCase().endsWith('.apk')) {
           apkUrl = url;
           apkName = name;
+          apkSize = (asset['size'] as num?)?.toInt();
           break;
         }
       }
@@ -82,6 +84,7 @@ class AppUpdater {
         notes: _cleanNotes(data['body'] as String? ?? ''),
         apkUrl: apkUrl,
         apkName: apkName,
+        apkSize: apkSize,
         pageUrl: data['html_url'] as String? ??
             'https://github.com/$_repo/releases',
       );
@@ -112,6 +115,7 @@ class RemoteRelease {
     required this.notes,
     required this.apkUrl,
     required this.apkName,
+    required this.apkSize,
     required this.pageUrl,
   });
 
@@ -121,6 +125,10 @@ class RemoteRelease {
   final String notes;
   final String? apkUrl;
   final String? apkName;
+
+  /// Size in bytes of the release APK, as reported by GitHub; used to
+  /// verify that a previously downloaded copy is still the real asset.
+  final int? apkSize;
   final String pageUrl;
 
   bool hasApk() => apkUrl != null;

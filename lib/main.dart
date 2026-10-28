@@ -1300,39 +1300,45 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Update available'),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('${release.name} (${release.tag})'),
             if (release.notes.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Flexible(child: SingleChildScrollView(child: Text(release.notes))),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Text(release.notes),
+                ),
+              ),
             ],
             const SizedBox(height: 12),
             Text(
               'Installed version: ${AppUpdater.currentVersion}\n'
               "You'll download the APK and Android will ask to install it.",
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              launchUrl(Uri.parse(release.pageUrl));
-            },
-            child: const Text('View on GitHub'),
-          ),
-          if (release.hasApk())
-            ElevatedButton(
+            const SizedBox(height: 16),
+            if (release.hasApk())
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _downloadUpdate(release);
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Download update'),
+              ),
+            const SizedBox(height: 4),
+            TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                _downloadUpdate(release);
+                launchUrl(Uri.parse(release.pageUrl));
               },
-              child: const Text('Download update'),
+              child: const Text('View on GitHub'),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
