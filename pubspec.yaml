@@ -53,14 +53,16 @@ dependencies:
 
 # Device-side YouTube stream URL resolution (hybrid architecture:
 # metadata from the backend, audio streams resolved in-app).
-# Pinned to the PR #390 fork: upstream 3.1.0 issues stream URLs that
-# 403 after ~1 MiB because YouTube now requires a GVS PO token for the
-# anonymous androidSdkless path; the visionOS client needs neither the
-# token nor a JS challenge solver. Remove once Hexer10 merges #390.
+# Vendored copy of the PR #390 fork (src commit edad276) under
+# third_party/: upstream 3.1.0 issues stream URLs that 403 after ~1 MiB
+# because YouTube now requires a GVS PO token for the anonymous
+# androidSdkless path; the visionOS client needs neither the token nor a
+# JS challenge solver. The vendored copy additionally fixes YouTube's
+# new runs-based viewCountText breaking search-page parsing (dynamic
+# extension dispatch); remove the vendor dir once the upstream fork is
+# merged and fixed.
   youtube_explode_dart:
-    git:
-      url: https://github.com/its-ashutosh-pathak/youtube_explode_dart.git
-      ref: edad2760cc7998bcc18013dc9880c052ad32598f
+    path: third_party/youtube_explode_dart
 
   # Local persistence for settings, playlists, download history
   shared_preferences: ^2.5.0

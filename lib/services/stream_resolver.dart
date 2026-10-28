@@ -7,6 +7,8 @@ import 'package:music_player/services/music_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import 'stream_probe_stub.dart'
+    if (dart.library.io) 'stream_probe.dart';
 import 'stream_proxy_stub.dart'
     if (dart.library.io) 'stream_proxy.dart';
 
@@ -151,29 +153,25 @@ class StreamResolver {
     }
 
     if (url == null) {
-      // Fresh resolution — wait out an active rate-limit cooldown first.
-      final cooling = _coolingUntil;
-      if (usesBackend) return track.audioUrl;
-      if (cooling != null && now.isBefore(cooling)) {
-        throw ResolveException('YouTube is busy — try again in a moment');
-      }
-      try {
-        url = await _resolveWithRetry(videoId);
-        _store(videoId, _CachedUrl(url, now.add(_cacheTtl)));
-      } catch (e) {
-        _store(videoId, _CachedUrl('', now.add(_failureBackoff)));
-        if (usesBackend) return track.audioUrl;
-        if (e is ResolveException) rethrow;
-        if (e is RequestLimitExceededException) {
-          _tripRateLimit();
-          throw ResolveException(
-              'YouTube is busy — wait a minute and try again');
-        }
-        if (e is TimeoutException) {
-          throw ResolveException(
-              'Couldn\'t reach YouTube — check your connection and try again');
-        }
-        rethrow;
+      url = await _freshUrl(videoId, track.audioUrl);
+    }
+
+    // Probe the URL before trusting it. googlevideo sometimes answers
+    // 403 for URLs it has already revoked, and stale disk-cached URLs
+    // die the same way — both show up later as a track that "resolved"
+    // fine but never plays. A dead URL triggers one fresh extraction
+    // (a cache hit costs no YouTube traffic, so the common case is
+    // nearly free); if that's dead too, surface the usual resolution
+    // error instead of handing the player a certain failure.
+    if (!await probeUrl(url)) {
+      _evict(videoId);
+      url = await _freshUrl(videoId, track.audioUrl);
+      if (!await probeUrl(url)) {
+        // Both extractions dead — back off like other failures so the
+        // next attempt doesn't burn another manifest round-trip at once.
+        _store(videoId, _CachedUrl('', DateTime.now().add(_failureBackoff)));
+        throw ResolveException(
+            'Couldn\'t load stream — wait a moment and try again');
       }
     }
 
@@ -181,6 +179,51 @@ class StreamResolver {
     // (both for loading and for seeking), so the stream is served through
     // a loopback relay that converts them to bounded ranges.
     return StreamProxy.instance.relay(url, key: videoId);
+  }
+
+  /// Drops a track's cached URL from memory and disk.
+  void _evict(String videoId) {
+    _cache.remove(videoId);
+    _diskEntries.remove(videoId);
+    unawaited(_persistDiskCache());
+  }
+
+  /// Resolves [videoId] against YouTube with the shared error mapping:
+  /// backend sessions fall back to the track URL; rate-limits trip the
+  /// cooldown; failures are marked for backoff. Returns the raw
+  /// googlevideo URL on success.
+  Future<String> _freshUrl(String videoId, String fallbackUrl) async {
+    final now = DateTime.now();
+    final cooling = _coolingUntil;
+    if (usesBackend) return fallbackUrl;
+    if (cooling != null && now.isBefore(cooling)) {
+      throw ResolveException('YouTube is busy — try again in a moment');
+    }
+    try {
+      final url = await _resolveWithRetry(videoId);
+      _store(videoId, _CachedUrl(url, now.add(_cacheTtl)));
+      return url;
+    } catch (e) {
+      // Only the error classes that benefit from a breather get a
+      // backoff marker (rate-limit garbage or unreachable YouTube).
+      // Content-level failures — e.g. "video unplayable: page needs
+      // to be reloaded" — often resolve on a plain re-extract, so a
+      // marker here would just disable the player's immediate retry.
+      if (e is RequestLimitExceededException || e is TimeoutException) {
+        _store(videoId, _CachedUrl('', now.add(_failureBackoff)));
+      }
+      if (usesBackend) return fallbackUrl;
+      if (e is ResolveException) rethrow;
+      if (e is RequestLimitExceededException) {
+        _tripRateLimit();
+        throw ResolveException('YouTube is busy — wait a minute and try again');
+      }
+      if (e is TimeoutException) {
+        throw ResolveException(
+            'Couldn\'t reach YouTube — check your connection and try again');
+      }
+      rethrow;
+    }
   }
 
   /// Resolves every track in [tracks] sequentially. YouTube rate-limits
