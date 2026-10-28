@@ -332,12 +332,17 @@ class DownloadManager extends StateNotifier<Map<String, DownloadState>> {
   }
 
   /// Downloads multiple tracks sequentially (for "Download All").
+  ///
+  /// Each track awaits the previous one's full download (manifest resolve
+  /// included), so at most one YouTube resolve is in flight and one file
+  /// is being written at a time — the same safe shape as the automatic
+  /// queue fills. Concurrency here would risk the rate limit for a
+  /// little speed the user doesn't need.
   Future<void> startDownloadAll(List<Track> tracks) async {
     for (final track in tracks) {
       if (state[track.id]?.status != DownloadStatus.downloaded &&
           state[track.id]?.status != DownloadStatus.downloading) {
-        startDownload(track);
-        await Future.delayed(const Duration(milliseconds: 300));
+        await startDownload(track);
       }
     }
   }
