@@ -21,3 +21,9 @@ Future<bool> downloadAndPromptApk(
 }) async {
   return false;
 }
+
+/// Total bytes of the cached update APK files (0 when none).
+Future<int> updateApkCacheSize() async => 0;
+
+/// Deletes every cached update APK file. Returns the bytes freed.
+Future<int> clearUpdateApkCache() async => 0;

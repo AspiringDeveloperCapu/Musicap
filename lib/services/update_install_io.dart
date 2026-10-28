@@ -79,3 +79,40 @@ Future<bool> downloadAndPromptApk(
     return false;
   }
 }
+
+/// Every file the updater left in the app cache: complete APKs as well
+/// as any partial download leftovers.
+Future<List<File>> _updateApkCacheFiles() async {
+  final dir = await getTemporaryDirectory();
+  final files = <File>[];
+  await for (final entity in dir.list()) {
+    final name = entity.path.split(Platform.pathSeparator).last;
+    if (entity is File && name.startsWith('update_')) {
+      files.add(entity);
+    }
+  }
+  return files;
+}
+
+/// Total bytes of the cached update APK files (0 when none).
+Future<int> updateApkCacheSize() async {
+  var total = 0;
+  for (final file in await _updateApkCacheFiles()) {
+    try {
+      total += await file.length();
+    } catch (_) {}
+  }
+  return total;
+}
+
+/// Deletes every cached update APK file. Returns the bytes freed.
+Future<int> clearUpdateApkCache() async {
+  var freed = 0;
+  for (final file in await _updateApkCacheFiles()) {
+    try {
+      freed += await file.length();
+      await file.delete();
+    } catch (_) {}
+  }
+  return freed;
+}

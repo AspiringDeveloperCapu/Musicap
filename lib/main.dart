@@ -1172,6 +1172,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle: const Text('Remove all downloaded tracks'),
             onTap: () => _confirmClearDownloads(context),
           ),
+          // Update APKs only exist on Android (the in-app updater).
+          if (defaultTargetPlatform == TargetPlatform.android && !kIsWeb)
+            ListTile(
+              leading: const Icon(Icons.cleaning_services_outlined),
+              title: const Text('Clear update cache'),
+              subtitle: const Text('Delete downloaded update APK files'),
+              onTap: _clearUpdateCacheDialog,
+            ),
 
           const Divider(height: 1),
 
@@ -1405,6 +1413,58 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ),
       );
     }
+  }
+
+  /// Shows the cached update APK files with their total size and, when
+  /// confirmed, deletes them. Kept discrete from downloaded music (the
+  /// Clear All Downloads tile) so users always see what's being purged.
+  Future<void> _clearUpdateCacheDialog() async {
+    final size = await updateApkCacheSize();
+    if (!mounted) return;
+    if (size == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No cached update files'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear update cache'),
+        content: Text(
+          'Delete the cached update APK files? '
+          'That frees ${_formatBytes(size)} on this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final freed = await clearUpdateApkCache();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Freed ${_formatBytes(freed)}'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  static String _formatBytes(int bytes) {
+    return bytes >= 1024 * 1024
+        ? '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+        : '${(bytes / 1024).toStringAsFixed(0)} KB';
   }
 
   /// Leading icon for the Backend Address tile: colored by reachability.
