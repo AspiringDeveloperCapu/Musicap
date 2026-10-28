@@ -127,13 +127,35 @@ class StreamResolver {
     return left.isNegative ? Duration.zero : left;
   }
 
+  /// True when [track] already has a usable stream URL for the session:
+  /// a local download, a backend URL, or a live cache entry (memory or
+  /// disk). Lets callers warm the next slots without knowing the cache's
+  /// internals — a true result means resolving costs nothing at all.
+  bool hasCachedUrl(Track track) {
+    if (track.audioUrl.startsWith('file:')) return true;
+    final videoId = track.videoId;
+    if (kIsWeb || videoId == null || videoId.isEmpty) return true;
+    final localPath = localFiles[videoId];
+    if (localPath != null && localPath.isNotEmpty) return true;
+    final cached = _cache[videoId];
+    if (cached == null) {
+      // Disk-backed entries only exist after the cache has loaded. If
+      // that hasn't happened yet, assume it must still be warmed.
+      return _diskLoaded;
+    }
+    return !cached.isFailure && DateTime.now().isBefore(cached.expiresAt);
+  }
+
+  /// Set once the disk cache has been loaded (or attempted) for this
+  /// session; before that [hasCachedUrl] reports misses.
+  bool _diskLoaded = false;
+
   /// Returns the best playable audio URL for [track].
   ///
   /// Local files pass through untouched; platforms with a backend fall
   /// back to [Track.audioUrl] on failure; on serverless Android resolution
   /// failures throw (the player surfaces them as playback errors).
-  Future<String> resolve(Track track) async {
-    // Offline downloads: play the saved file as-is.
+  Future<String> resolve(Track track) async {    // Offline downloads: play the saved file as-is.
     if (track.audioUrl.startsWith('file:')) return track.audioUrl;
 
     final videoId = track.videoId;
@@ -152,6 +174,7 @@ class StreamResolver {
     // Load the persisted cache once (no-op afterwards). A cached URL from
     // a previous session skips the YouTube request entirely.
     await (_diskLoad ??= _loadDiskCache());
+    _diskLoaded = true;
 
     final now = DateTime.now();
     String? url;

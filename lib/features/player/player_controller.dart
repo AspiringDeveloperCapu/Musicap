@@ -123,6 +123,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     // queue is exhausted: pull related music.
     Timer.periodic(const Duration(seconds: 5), (_) {
       if (_disposed || _autoplayLoading || _autoplayPending) return;
+      // Heartbeat for the keep-ahead prefetch (expires no-ops cheaply).
+      unawaited(_prefetchAhead());
       if (!_nearTrackEnd) {
         _lastStallPos = null;
         return;
@@ -179,6 +181,9 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         // it one last chance from cache/disk — otherwise skip the dead
         // air so the queue keeps moving.
         unawaited(_maybeSkipSilence(index, track));
+        // And make sure the *next* tracks are ready before they're
+        // needed, when autoplay is on.
+        unawaited(_prefetchAhead());
       }
     });
 
@@ -600,6 +605,155 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     }
   }
 
+  /// Fresh related tracks for [seed], minus whatever is already queued.
+  /// Backend sessions use the recommendations API with a charts
+  /// fallback; serverless Android goes through the (memoized) on-device
+  /// related feed. Empty list = feed unreachable or exhausted.
+  Future<List<Track>> _fetchRelated(Track seed) async {
+    var fresh = const <Track>[];
+    if (usesBackend) {
+      if (seed.videoId != null) {
+        try {
+          final related = await musicApi.getRecommendations(
+            videoId: seed.videoId!,
+            limit: 10,
+          );
+          final existing = state.queue.map((t) => t.id).toSet();
+          fresh = related.where((t) => !existing.contains(t.id)).toList();
+        } catch (_) {
+          // Demo/invalid seed or radio error — try the charts feed.
+        }
+      }
+      if (fresh.isEmpty) {
+        try {
+          final charts = await musicApi.getCharts(limit: 10);
+          final existing = state.queue.map((t) => t.id).toSet();
+          fresh = charts.where((t) => !existing.contains(t.id)).take(10).toList();
+        } catch (_) {
+          // No fallback available.
+        }
+      }
+    } else if (seed.videoId != null) {
+      try {
+        final existing = state.queue.map((t) => t.id).toSet();
+        fresh = await DeviceMetadata.instance.related(
+          seed,
+          limit: 10,
+          excludeIds: existing,
+        );
+      } catch (_) {
+        // Related feed unavailable — let playback end quietly.
+      }
+    }
+    return fresh;
+  }
+
+  /// How many slots ahead prefetch pre-resolves URLs for. Metadata only
+  /// (a few KB per track) — audio stays lazily buffered by the player.
+  static const _prefetchDepth = 2;
+
+  /// How many related tracks the tail top-up appends at a time, keeping
+  /// data use well under a single track's worth of stream size.
+  static const _prefetchTail = 3;
+
+  /// Only top up when fewer than this many tracks remain ahead.
+  static const _prefetchKeepAhead = 3;
+
+  /// Keeps the queue a short distance ahead of the playhead whenever
+  /// autoplay is on, so playback is continuous without bulk-loading:
+  ///
+  /// 1. *URL warming* — the next one or two slots are resolved now
+  ///    instead of on transition. Manifest lookups are metadata-sized
+  ///    and cache-first, so a warmed later slot never re-requests.
+  /// 2. *Tail top-up* — when fewer than [_prefetchKeepAhead] tracks
+  ///    remain ahead, a few related tracks are appended mid-playback
+  ///    (single add()s — no pause, no timeline rebuild, zero
+  ///    interruption) and only after each resolves.
+  ///
+  /// Small numbers by design: pre-resolving the whole queue would spam
+  /// YouTube's anonymous limits, and pre-buffering real audio would
+  /// burn data the user didn't ask for. The rate limit is protected the
+  /// same way playback is: resolveAll stays sequential, paced and
+  /// cache-first, and cooldowns make the prefetch stand aside (failures
+  /// here never schedule retries — exhaustion recovery owns recovery).
+  Future<void> _prefetchAhead() async {
+    if (_disposed || _autoplayLoading || _autoplayPending) return;
+    final enabled = _ref.read(
+      settingsProvider.select((s) => s.autoplayRelated),
+    );
+    if (!enabled) return;
+    if (state.queue.isEmpty || _audioSource == null) return;
+
+    final index = state.currentIndex;
+    final queue = state.queue;
+    final remaining = queue.length - index - 1;
+
+    if (remaining > _prefetchKeepAhead) {
+      // 1) Warm the next slots that aren't already in cache/local.
+      final toWarm = <Track>[];
+      for (var j = 1; j <= _prefetchDepth && index + j < queue.length; j++) {
+        final track = queue[index + j];
+        if (!StreamResolver.instance.hasCachedUrl(track)) toWarm.add(track);
+      }
+      if (toWarm.isEmpty) return;
+      _autoplayLoading = true;
+      try {
+        final gen = _queueGeneration;
+        final urls = await StreamResolver.instance.resolveAll(toWarm);
+        if (_disposed || gen != _queueGeneration) return;
+        final warmed = urls.where((u) => u.isNotEmpty).length;
+        if (warmed > 0) {
+          _log('[prefetch] warmed $warmed/${toWarm.length} ahead');
+        }
+      } catch (e) {
+        // Cooldowns and dead URLs are expected here; exhaustion
+        // recovery deals with them if they matter.
+        _log('[prefetch] warm failed: $e');
+      } finally {
+        _autoplayLoading = false;
+      }
+      return;
+    }
+
+    // 2) Tail top-up: append a few related tracks, resolved one by one.
+    final seedIndex = index.clamp(0, queue.length - 1);
+    final seed = queue[seedIndex];
+    _autoplayLoading = true;
+    try {
+      final fresh = await _fetchRelated(seed);
+      if (fresh.isEmpty || _disposed) return;
+      final gen = _queueGeneration;
+      final toAppend = fresh.take(_prefetchTail).toList();
+      final urls = await StreamResolver.instance.resolveAll(toAppend);
+      if (_disposed || gen != _queueGeneration) return;
+      var appended = 0;
+      for (var i = 0; i < toAppend.length; i++) {
+        if (urls[i].isEmpty) continue;
+        final source = _audioSource;
+        if (source == null || gen != _queueGeneration) break;
+        await source.add(
+          AudioSource.uri(Uri.parse(urls[i]), tag: _mediaItem(toAppend[i])),
+        );
+        state = state.copyWith(
+          queue: [...state.queue, toAppend[i]],
+          hasNext: _player.hasNext,
+        );
+        appended++;
+      }
+      if (appended > 0) {
+        _saveQueue();
+        _cancelAutoplayRetry();
+        _log('[prefetch] topped up tail (+$appended)');
+      }
+    } catch (e) {
+      // Never schedule a retry from prefetch — the exhaustion
+      // watchdogs handle recovery when the tail genuinely runs dry.
+      _log('[prefetch] top-up failed: $e');
+    } finally {
+      _autoplayLoading = false;
+    }
+  }
+
   Future<void> _autoplayRelated() async {
     final enabled = _ref.read(
       settingsProvider.select((s) => s.autoplayRelated),
@@ -612,44 +766,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
     _autoplayLoading = true;
     try {
-      var fresh = const <Track>[];
-      if (usesBackend) {
-        if (seed.videoId != null) {
-          try {
-            final related = await musicApi.getRecommendations(
-              videoId: seed.videoId!,
-              limit: 10,
-            );
-            final existing = state.queue.map((t) => t.id).toSet();
-            fresh = related.where((t) => !existing.contains(t.id)).toList();
-          } catch (_) {
-            // Demo/invalid seed or radio error — try the charts feed.
-          }
-        }
-        if (fresh.isEmpty) {
-          try {
-            final charts = await musicApi.getCharts(limit: 10);
-            final existing = state.queue.map((t) => t.id).toSet();
-            fresh = charts
-                .where((t) => !existing.contains(t.id))
-                .take(10)
-                .toList();
-          } catch (_) {
-            // No fallback available — let playback end quietly.
-          }
-        }
-      } else if (seed.videoId != null) {
-        try {
-          final existing = state.queue.map((t) => t.id).toSet();
-          fresh = await DeviceMetadata.instance.related(
-            seed,
-            limit: 10,
-            excludeIds: existing,
-          );
-        } catch (_) {
-          // Related feed unavailable — let playback end quietly.
-        }
-      }
+      final fresh = await _fetchRelated(seed);
       if (fresh.isEmpty) {
         // Feed empty or unreachable — schedule a retry so playback
         // resumes when it recovers instead of stopping for good.
